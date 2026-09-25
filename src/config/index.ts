@@ -6,23 +6,32 @@
 
 const ls = window.localStorage
 
+// 【改动1】原来指向作者的 zyapi.loshop.com.cn（已关闭）
+// 改成空字符串 → 请求变成同源 /api/xxx → 命中反代 → 转发到官方服务器
 export const API_BASE_URL: string =
-  ls.getItem('apiBaseUrl') || 'https://zyapi.loshop.com.cn'
+  ls.getItem('apiBaseUrl') || ''
 
+// 【改动2】同上
 export const API_BASE_BASE_URL: string =
-  ls.getItem('apiBaseOrigin') || 'https://zyapi.loshop.com.cn'
+  ls.getItem('apiBaseOrigin') || ''
 
+// 【没动】分享服务：作者的私有数据库，已关闭，无法替代 → 分享功能失效
 export const SHARE_SERVER: string =
   ls.getItem('shareServer') || 'https://zytbshareapi.loshop.com.cn'
 
 /** 远端代理（默认走服务器） */
+// 【没动】作者的下载代理，已关闭 → 下载功能失效
 export const PROXY_REMOTE = 'https://zytbdownloadagent.loshop.com.cn/download/'
 /** 本地加速代理（检测到时使用） */
+// 【没动】本地加速插件，没装 exe 就一直探测失败，不影响使用
 export const PROXY_LOCAL = 'http://127.0.0.1:5005/proxy/'
 /** 本地代理探测地址 */
 export const PROXY_LOCAL_PING = 'http://127.0.0.1:5005/proxy/ping'
 
 /** 领创接口配置（复刻 linspirer.js） */
+// 【没动】zytb-linspirer-api 也是作者的私有代理，已关闭。
+// 领创是另一家公司的系统，不知道官方直连地址，不敢乱填 → 领创功能失效。
+// 想知道官方地址：进 QQ 群 1067807011 问作者。
 export const LINSPIRER = {
   KEY: '1191ADF18489D8DA',
   IV: '5E9B755A8B674394',
@@ -84,15 +93,12 @@ export const SUBJECTS: Array<[number, string]> = [
 ]
 
 /**
- * 嵌套 iframe 模块基地址（在线专栏 navPage.html / 选课 ezyRawContent.html）
- * 复刻旧 index.js 中 zxzl_set_url / ck_set_url：
- *   - 专栏：https://zyapi.loshop.com.cn/navPage.html?apiHost=<API_BASE_URL>&apiToken=<token>#/list?messageType=pager
- *   - 选课：ezyRawContent.html?apiHost=https://zyapi.loshop.com.cn&apiToken=<token>#/index/courseChoosing/StudentsCoursesList
- * apiToken 来自登录后的 token；CK 旧版用同源相对路径 ezyRawContent.html，
- * 以便 MutationObserver 能注入样式（见 useIframeInject）。新工程把 ezyRawContent.html
- * 放入 public/ 以复用该同源行为。
+ * 嵌套 iframe 模块基地址
+ * 【改动3】改成空字符串 → 变成同源相对路径
+ *   - 选课 ezyRawContent.html：仓库 public/ 里有 → 能救回来
+ *   - 专栏 navPage.html：只在作者服务器上，已关闭 → 专栏失效
  */
-export const IFRAME_BASE = ls.getItem('iframeBase') || 'https://zyapi.loshop.com.cn'
+export const IFRAME_BASE = ls.getItem('iframeBase') || ''
 
 /** OSS 上传类型前缀（复刻 index.html #selectFc 选项） */
 export const OSS_PREFIXES: string[] = [
