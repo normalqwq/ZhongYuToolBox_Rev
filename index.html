@@ -6,57 +6,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>中育ToolBox</title>
     <script>
+    /* ============================================================
+       官方接口重定向（本项目运行必需，请勿删除）
+
+       背景：原项目把接口写死在作者私有的 zyapi.loshop.com.cn，
+             该服务已关闭。本项目改用 Cloudflare Pages Functions
+             （functions/api/[[path]].js）做反代，转发到中育官方
+             服务器 http://sxz.api.zykj.org。
+
+       作用：拦截所有指向 zyapi.loshop.com.cn 的请求，
+             改写为同源 /api/xxx，交给反代处理。
+             前端源码里有多处硬编码，改配置优先级不够，只能在这里兜底。
+       ============================================================ */
     (function () {
       var DEAD = /^https?:\/\/zyapi\.loshop\.com\.cn/i;
-      var panel = null, list = null, count = 0;
 
       function rewrite(u) {
         if (typeof u !== 'string') return u;
-        if (DEAD.test(u)) return u.replace(DEAD, '');
-        return u;
+        return DEAD.test(u) ? u.replace(DEAD, '') : u;
       }
 
-      function ensure() {
-        if (panel) return;
-        panel = document.createElement('div');
-        panel.style.cssText =
-          'position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;' +
-          'background:rgba(0,0,0,.9);color:#fff;font:12px/1.5 monospace;' +
-          'z-index:2147483647;padding:8px;white-space:pre-wrap;word-break:break-all';
-        panel.innerHTML = '<div style="color:#4ade80;font-weight:bold;margin-bottom:6px">' +
-          '请求监控（绿=走反代 红=直连外部）</div>';
-        list = document.createElement('div');
-        panel.appendChild(list);
-        document.body.appendChild(panel);
-      }
-
-      function add(url, method, wasRewritten) {
-        count++;
-        ensure();
-        var isLocal = false;
-        try { isLocal = new URL(url, location.href).origin === location.origin; } catch (e) {}
-        var color = isLocal ? '#4ade80' : '#f87171';
-        var row = document.createElement('div');
-        row.style.cssText = 'border-top:1px solid #333;padding:4px 0';
-        row.innerHTML =
-          '<span style="color:#94a3b8">#' + count + ' ' + (method || '') + '</span> ' +
-          '<span style="color:' + color + '">' + (isLocal ? '[同源]' : '[外部]') + '</span> ' +
-          (wasRewritten ? '<span style="color:#fbbf24">[已改写]</span> ' : '') + url;
-        list.insertBefore(row, list.firstChild);
-      }
-
+      // 劫持 fetch
       var origFetch = window.fetch;
       window.fetch = function (input, init) {
         try {
           if (typeof input === 'string') {
-            var n = rewrite(input);
-            add(n, (init && init.method) || 'GET', n !== input);
-            if (n !== input) input = n;
+            input = rewrite(input);
           } else if (input && input.url) {
-            var n2 = rewrite(input.url);
-            add(n2, (init && init.method) || input.method || 'GET', n2 !== input.url);
-            if (n2 !== input.url) {
-              input = new Request(n2, {
+            var n = rewrite(input.url);
+            if (n !== input.url) {
+              input = new Request(n, {
                 method: input.method,
                 headers: input.headers,
                 body: input.body,
@@ -69,17 +48,12 @@
         return origFetch.apply(this, arguments);
       };
 
+      // 劫持 XHR
       var origOpen = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function (method, url) {
-        try {
-          var n = rewrite(url);
-          add(n, method, n !== url);
-          if (n !== url) url = n;
-        } catch (e) {}
+        try { url = rewrite(url); } catch (e) {}
         return origOpen.apply(this, arguments);
       };
-
-      window.__loggerReady = true;
     })();
     </script>
   </head>
