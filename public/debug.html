@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登录诊断</title>
+<style>
+  body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:#0f172a;color:#e2e8f0;margin:0;padding:16px;font-size:14px}
+  h1{font-size:17px;margin:0 0 12px}
+  .card{background:#fff;color:#0f172a;border-radius:12px;padding:16px;margin-bottom:14px}
+  input{width:100%;box-sizing:border-box;padding:10px;margin-bottom:8px;font-size:15px;
+        border:1px solid #cbd5e1;border-radius:8px}
+  button{width:100%;padding:12px;font-size:15px;color:#fff;background:#2563eb;
+         border:0;border-radius:8px;cursor:pointer}
+  pre{background:#1e293b;color:#cbd5e1;padding:12px;border-radius:8px;overflow-x:auto;
+      white-space:pre-wrap;word-break:break-all;font-size:12px;margin:8px 0 0}
+  .ok{color:#16a34a;font-weight:bold}
+  .bad{color:#dc2626;font-weight:bold}
+  .row{border-bottom:1px solid #e2e8f0;padding:10px 0}
+  .row:last-child{border:0}
+  .name{font-weight:bold}
+  .hint{font-size:12px;color:#64748b;margin-top:4px}
+</style>
+</head>
+<body>
+<h1>登录诊断（密码不会进网址）</h1>
+
+<div class="card">
+  <input id="u" placeholder="账号（学号）" autocomplete="username">
+  <input id="p" type="password" placeholder="密码" autocomplete="current-password">
+  <button id="go">开始诊断</button>
+  <p class="hint">只发给你自己的站点和中育官方服务器，不经过任何第三方。</p>
+</div>
+
+<div class="card" id="out"><pre>等待运行…</pre></div>
+
+<script>
+var $ = function(id){ return document.getElementById(id); };
+var out = $('out');
+
+function log(s){ out.insertAdjacentHTML('beforeend', '<div class="row">' + s + '</div>'); }
+
+async function call(url, opts){
+  try{
+    var r = await fetch(url, opts);
+    var t = await r.text();
+    return { status: r.status, text: t };
+  }catch(e){ return { status: -1, text: String(e) }; }
+}
+
+$('go').onclick = async function(){
+  var u = $('u').value.trim(), p = $('p').value;
+  if(!u || !p){ alert('请填账号和密码'); return; }
+  out.innerHTML = '';
+  $('go').disabled = true; $('go').textContent = '诊断中…';
+
+  log('<div class="name">步骤 0：查学校服务器</div>');
+  var d = await call('/api/__probe', { headers:{Accept:'application/json'} });
+  log('<pre>' + d.text.slice(0,300) + '</pre>');
+
+  log('<div class="name">步骤 1：登录拿 token</div>');
+  var lr = await call('/api/TokenAuth/Login', {
+    method:'POST',
+    headers:{'Content-Type':'application/json', Accept:'application/json'},
+    body: JSON.stringify({ userName:u, password:p, clientType:1 })
+  });
+  var token = null;
+  try{ var j = JSON.parse(lr.text); if(j && j.result) token = j.result.accessToken; }catch(e){}
+  log('<pre>HTTP ' + lr.status + '\n' + lr.text.slice(0,500) + '</pre>');
+
+  if(!token){
+    log('<div class="bad">结论：登录没拿到 token。看上面的返回内容。</div>');
+    $('go').disabled = false; $('go').textContent = '重新诊断';
+    return;
+  }
+  log('<div class="ok">token 拿到了：' + token.slice(0,24) + '…</div>');
+
+  log('<div class="name">步骤 2：查用户信息（报错就出在这一步）</div>');
+  var base = '/api/services/app/User/GetInfoAsync';
+  var combos = [
+    ['① 只带 Authorization', { Authorization:'Bearer '+token }],
+    ['② + AppName:WebClient / AppVersion:0', { Authorization:'Bearer '+token, AppName:'WebClient', AppVersion:'0' }],
+    ['③ + AppName:com.zykj.manage / 32', { Authorization:'Bearer '+token, AppName:'com.zykj.manage', AppVersion:'32' }],
+    ['④ + Abp.TenantId:1', { Authorization:'Bearer '+token, 'Abp.TenantId':'1' }],
+    ['⑤ + X-Requested-With', { Authorization:'Bearer '+token, 'X-Requested-With':'XMLHttpRequest' }],
+    ['⑥ + 全部一起', { Authorization:'Bearer '+token, AppName:'WebClient', AppVersion:'0', 'Abp.TenantId':'1', 'X-Requested-With':'XMLHttpRequest' }]
+  ];
+
+  var winner = null;
+  for(var i=0;i<combos.length;i++){
+    var name = combos[i][0], h = combos[i][1];
+    h['Accept'] = 'application/json';
+    h['Content-Type'] = 'application/json';
+    var r = await call(base, { method:'GET', headers:h });
+    var good = (r.status === 200 && r.text.indexOf('CurrentUserDidNotLogin') === -1);
+    if(good && !winner) winner = name;
+    log('<div class="name">' + name + ' → ' +
+        (good ? '<span class="ok">成功 HTTP '+r.status+'</span>' : '<span class="bad">失败 HTTP '+r.status+'</span>') +
+        '</div><pre>' + r.text.slice(0,300) + '</pre>');
+  }
+
+  if(winner){
+    log('<div class="ok">可行方案：' + winner + '<br>把这个组合发给我，我把它写进反代。</div>');
+  }else{
+    log('<div class="bad">六种都失败了。把这一页截图发给我（遮掉 token 和密码）。</div>');
+  }
+  $('go').disabled = false; $('go').textContent = '重新诊断';
+};
+</script>
+</body>
+</html>
