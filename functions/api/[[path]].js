@@ -29,61 +29,15 @@ function cors() {
   };
 }
 
-async function loginTest(env, u, p) {
-  const out = {};
-  const up = await resolveUpstream(env);
-  out['0_服务器'] = up;
-  if (!up) { out.结论 = '查不到学校服务器'; return json(out); }
-
-  let token = null;
-  try {
-    const r = await fetch(up + '/api/TokenAuth/Login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ userName: u, password: p, clientType: 1 }),
-    });
-    const txt = await r.text();
-    out['1_登录'] = { http状态: r.status, 返回: txt.slice(0, 600) };
-    try {
-      const j = JSON.parse(txt);
-      if (j && j.result && j.result.accessToken) token = j.result.accessToken;
-    } catch (e) {}
-  } catch (e) { out['1_登录'] = { 失败: String(e) }; }
-
-  if (!token) {
-    out.结论 = '第1步登录就没拿到 token，看「1_登录」返回';
-    return json(out);
-  }
-  out['2_token前30位'] = token.slice(0, 30) + '...';
-
-  const path = '/api/services/app/User/GetInfoAsync';
-  const tries = [
-    ['A_只带Authorization', { Authorization: 'Bearer ' + token }],
-    ['B_加租户头', { Authorization: 'Bearer ' + token, 'Abp.TenantId': '1', AppName: 'WebClient', AppVersion: '0' }],
-    ['C_带Id参数', { Authorization: 'Bearer ' + token }],
-  ];
-
-  for (const [name, hdrs] of tries) {
-    try {
-      const url = name === 'C_带Id参数' ? up + path + '?Id=0' : up + path;
-      const r = await fetch(url, { method: 'GET', headers: { Accept: 'application/json', ...hdrs } });
-      const txt = await r.text();
-      out[name] = { http状态: r.status, 返回: txt.slice(0, 400) };
-    } catch (e) { out[name] = { 失败: String(e) }; }
-  }
-
-  out.结论 = '看 A/B/C 哪个 http状态 是 200';
-  return json(out);
-}
-
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
-  const path = url.pathname.replace(/^\/api/, '');
+  const full = url.pathname;                       // 例：/api/TokenAuth/Login
+  const short = full.replace(/^\/api/, '');        // 例：/TokenAuth/Login（只用来判断内部端点）
 
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
 
-  if (path === '/__probe') {
+  if (short === '/__probe') {
     const code = (env && env.SCHOOL_CODE) || 'sxz';
     let info = { schoolCode: code };
     try {
@@ -93,17 +47,15 @@ export async function onRequest(context) {
     info['服务器'] = await resolveUpstream(env);
     return json(info);
   }
-  if (path === '/__test') {
-    return await loginTest(env, url.searchParams.get('u') || '', url.searchParams.get('p') || '');
-  }
 
+  // ★ 关键修复：转发时保留完整的 /api 前缀
   let target;
-  if (path.startsWith('/discovery/')) {
-    target = DISCOVERY + path + url.search;
+  if (short.startsWith('/discovery/')) {
+    target = DISCOVERY + full + url.search;        // /api/discovery/xxx → 官方网关
   } else {
     const up = await resolveUpstream(env);
     if (!up) return json({ __proxyError: '查不到学校服务器地址' });
-    target = up + path + url.search;
+    target = up + full + url.search;               // /api/xxx → 学校服务器，不再剥掉 /api
   }
 
   const headers = new Headers(request.headers);
