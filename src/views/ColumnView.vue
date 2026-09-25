@@ -376,13 +376,10 @@ function goMessage(m: AppMessage) {
 }
 
 /* --------------------------- 在新页面打开（复刻旧 iframe URL） --------------------------- */
-const apiHost = computed(() => auth.apiBaseUrl || 'https://zyapi.loshop.com.cn')
 const token = computed(() => auth.token || '')
 const newTabUrl = computed(
   () =>
-    `${IFRAME_BASE}/navPage.html?apiHost=${encodeURIComponent(
-      apiHost.value
-    )}&apiToken=${token.value}#/list?messageType=pager`
+    `/navPage.html?apiHost=${encodeURIComponent('/api/')}&apiToken=${token.value}#/list?messageType=pager`
 )
 function openInNewTab() {
   window.open(newTabUrl.value, '_blank')
