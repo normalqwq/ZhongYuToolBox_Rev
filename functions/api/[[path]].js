@@ -14,38 +14,6 @@ async function resolveUpstream(env) {
   return null;
 }
 
-async function probe(env) {
-  const code = (env && env.SCHOOL_CODE) || 'sxz';
-  const info = { schoolCode: code };
-  let upstream = null;
-  try {
-    const r = await fetch(`${DISCOVERY}/api/discovery/${code}`, { headers: { Accept: 'application/json' } });
-    const txt = await r.text();
-    info['步骤1_查学校地址'] = { http状态: r.status, 返回: txt.slice(0, 400) };
-    try { upstream = JSON.parse(txt).server; } catch (e) {}
-  } catch (e) { info['步骤1_查学校地址'] = { 失败: String(e) }; }
-  upstream = (env && env.UPSTREAM) || upstream;
-  info['最终使用的服务器'] = upstream;
-  if (upstream) {
-    try {
-      const r = await fetch(upstream + '/api/TokenAuth/Login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userName: '__probe__', password: '__probe__', clientType: 1 }),
-      });
-      const txt = await r.text();
-      info['步骤2_连学校服务器'] = { http状态: r.status, 返回: txt.slice(0, 400) };
-      info.结论 = (r.status === 200 || r.status === 500)
-        ? 'OK 链路通了，去网站登录试试'
-        : '服务器有回应但状态异常，看返回内容';
-    } catch (e) {
-      info['步骤2_连学校服务器'] = { 失败: String(e) };
-      info.结论 = 'Cloudflare 连不上学校服务器，此路不通';
-    }
-  } else { info.结论 = '查不到学校地址，去 Cloudflare 环境变量手动加 UPSTREAM'; }
-  return json(info);
-}
-
 function json(obj) {
   return new Response(JSON.stringify(obj, null, 2), {
     status: 200,
@@ -61,19 +29,80 @@ function cors() {
   };
 }
 
+async function loginTest(env, u, p) {
+  const out = {};
+  const up = await resolveUpstream(env);
+  out['0_服务器'] = up;
+  if (!up) { out.结论 = '查不到学校服务器'; return json(out); }
+
+  let token = null;
+  try {
+    const r = await fetch(up + '/api/TokenAuth/Login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ userName: u, password: p, clientType: 1 }),
+    });
+    const txt = await r.text();
+    out['1_登录'] = { http状态: r.status, 返回: txt.slice(0, 600) };
+    try {
+      const j = JSON.parse(txt);
+      if (j && j.result && j.result.accessToken) token = j.result.accessToken;
+    } catch (e) {}
+  } catch (e) { out['1_登录'] = { 失败: String(e) }; }
+
+  if (!token) {
+    out.结论 = '第1步登录就没拿到 token，看「1_登录」返回';
+    return json(out);
+  }
+  out['2_token前30位'] = token.slice(0, 30) + '...';
+
+  const path = '/api/services/app/User/GetInfoAsync';
+  const tries = [
+    ['A_只带Authorization', { Authorization: 'Bearer ' + token }],
+    ['B_加租户头', { Authorization: 'Bearer ' + token, 'Abp.TenantId': '1', AppName: 'WebClient', AppVersion: '0' }],
+    ['C_带Id参数', { Authorization: 'Bearer ' + token }],
+  ];
+
+  for (const [name, hdrs] of tries) {
+    try {
+      const url = name === 'C_带Id参数' ? up + path + '?Id=0' : up + path;
+      const r = await fetch(url, { method: 'GET', headers: { Accept: 'application/json', ...hdrs } });
+      const txt = await r.text();
+      out[name] = { http状态: r.status, 返回: txt.slice(0, 400) };
+    } catch (e) { out[name] = { 失败: String(e) }; }
+  }
+
+  out.结论 = '看 A/B/C 哪个 http状态 是 200';
+  return json(out);
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api/, '');
+
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
-  if (path === '/__probe') return await probe(env);
+
+  if (path === '/__probe') {
+    const code = (env && env.SCHOOL_CODE) || 'sxz';
+    let info = { schoolCode: code };
+    try {
+      const r = await fetch(`${DISCOVERY}/api/discovery/${code}`, { headers: { Accept: 'application/json' } });
+      info['查学校'] = { http状态: r.status, 返回: (await r.text()).slice(0, 400) };
+    } catch (e) { info['查学校'] = { 失败: String(e) }; }
+    info['服务器'] = await resolveUpstream(env);
+    return json(info);
+  }
+  if (path === '/__test') {
+    return await loginTest(env, url.searchParams.get('u') || '', url.searchParams.get('p') || '');
+  }
 
   let target;
   if (path.startsWith('/discovery/')) {
     target = DISCOVERY + path + url.search;
   } else {
     const up = await resolveUpstream(env);
-    if (!up) return json({ __proxyError: '查不到学校服务器地址', 提示: '打开 /api/__probe 看诊断' });
+    if (!up) return json({ __proxyError: '查不到学校服务器地址' });
     target = up + path + url.search;
   }
 
