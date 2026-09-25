@@ -6,54 +6,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>中育ToolBox</title>
     <script>
-    /* ============================================================
-       官方接口重定向（本项目运行必需，请勿删除）
-
-       背景：原项目把接口写死在作者私有的 zyapi.loshop.com.cn，
-             该服务已关闭。本项目改用 Cloudflare Pages Functions
-             （functions/api/[[path]].js）做反代，转发到中育官方
-             服务器 http://sxz.api.zykj.org。
-
-       作用：拦截所有指向 zyapi.loshop.com.cn 的请求，
-             改写为同源 /api/xxx，交给反代处理。
-             前端源码里有多处硬编码，改配置优先级不够，只能在这里兜底。
-       ============================================================ */
     (function () {
       var DEAD = /^https?:\/\/zyapi\.loshop\.com\.cn/i;
-
       function rewrite(u) {
         if (typeof u !== 'string') return u;
         return DEAD.test(u) ? u.replace(DEAD, '') : u;
       }
-
-      // 劫持 fetch
       var origFetch = window.fetch;
       window.fetch = function (input, init) {
         try {
-          if (typeof input === 'string') {
-            input = rewrite(input);
-          } else if (input && input.url) {
+          if (typeof input === 'string') input = rewrite(input);
+          else if (input && input.url) {
             var n = rewrite(input.url);
-            if (n !== input.url) {
-              input = new Request(n, {
-                method: input.method,
-                headers: input.headers,
-                body: input.body,
-                credentials: input.credentials,
-                redirect: input.redirect
-              });
-            }
+            if (n !== input.url) input = new Request(n, { method: input.method, headers: input.headers, body: input.body, credentials: input.credentials, redirect: input.redirect });
           }
         } catch (e) {}
         return origFetch.apply(this, arguments);
       };
-
-      // 劫持 XHR
       var origOpen = XMLHttpRequest.prototype.open;
-      XMLHttpRequest.prototype.open = function (method, url) {
+      XMLHttpRequest.prototype.open = function (m, url) {
         try { url = rewrite(url); } catch (e) {}
         return origOpen.apply(this, arguments);
       };
+
+      /* ===== 以下为临时诊断：图片监控，查完删掉 ===== */
+      var panel = null, list = null, seen = {}, n = 0;
+      function ensure() {
+        if (panel) return;
+        panel = document.createElement('div');
+        panel.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:50vh;overflow:auto;background:rgba(0,0,0,.9);color:#fff;font:11px/1.5 monospace;z-index:2147483647;padding:8px;white-space:pre-wrap;word-break:break-all';
+        panel.innerHTML = '<div style="color:#4ade80;font-weight:bold;margin-bottom:6px">图片监控（红=加载失败）</div>';
+        list = document.createElement('div');
+        panel.appendChild(list);
+        document.body.appendChild(panel);
+      }
+      function row(url, bad) {
+        if (seen[url]) return;
+        seen[url] = 1; n++;
+        ensure();
+        var d = document.createElement('div');
+        d.style.cssText = 'border-top:1px solid #333;padding:4px 0;color:' + (bad ? '#f87171' : '#4ade80');
+        d.textContent = '#' + n + (bad ? ' [失败] ' : ' [OK] ') + url;
+        list.insertBefore(d, list.firstChild);
+      }
+      // 捕获所有图片加载失败（capture 阶段才能拿到 img 的 error）
+      document.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t.tagName === 'IMG') row(t.src || t.getAttribute('src'), true);
+      }, true);
+      // 扫描页面上出现的 img
+      function scan() {
+        var imgs = document.querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+          var s = imgs[i].getAttribute('src');
+          if (s && !seen[s]) row(s, imgs[i].complete && imgs[i].naturalWidth === 0);
+        }
+      }
+      var mo = new MutationObserver(scan);
+      document.addEventListener('DOMContentLoaded', function () {
+        mo.observe(document.body, { childList: true, subtree: true });
+        scan();
+      });
     })();
     </script>
   </head>
