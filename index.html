@@ -12,60 +12,83 @@
         if (typeof u !== 'string') return u;
         return DEAD.test(u) ? u.replace(DEAD, '') : u;
       }
+      var KEY = '__netlog';
+      function load() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
+      function save(a) { try { localStorage.setItem(KEY, JSON.stringify(a.slice(0, 60))); } catch (e) {} }
+      function rec(o) { var a = load(); a.unshift(o); save(a); }
+
       var origFetch = window.fetch;
       window.fetch = function (input, init) {
+        var url = typeof input === 'string' ? input : (input && input.url);
+        var method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';
+        var p = origFetch.apply(this, arguments);
         try {
-          if (typeof input === 'string') input = rewrite(input);
-          else if (input && input.url) {
-            var n = rewrite(input.url);
-            if (n !== input.url) input = new Request(n, { method: input.method, headers: input.headers, body: input.body, credentials: input.credentials, redirect: input.redirect });
-          }
+          p.then(function (r) {
+            var c; try { c = r.clone(); } catch (e) {}
+            if (c) {
+              c.text().then(function (txt) {
+                rec({ t: new Date().toTimeString().slice(0,8), kind:'fetch', method:method, url:url, status:r.status, body:(txt||'').slice(0,500) });
+              }).catch(function () {
+                rec({ t: new Date().toTimeString().slice(0,8), kind:'fetch', method:method, url:url, status:r.status, body:'(二进制)' });
+              });
+            } else {
+              rec({ t: new Date().toTimeString().slice(0,8), kind:'fetch', method:method, url:url, status:r.status, body:'' });
+            }
+          }).catch(function (e) {
+            rec({ t: new Date().toTimeString().slice(0,8), kind:'fetch', method:method, url:url, status:-1, body:'失败:'+String(e) });
+          });
         } catch (e) {}
-        return origFetch.apply(this, arguments);
+        if (typeof input === 'string') {
+          var n1 = rewrite(input);
+          if (n1 !== input) arguments[0] = n1;
+        } else if (input && input.url) {
+          var n2 = rewrite(input.url);
+          if (n2 !== input.url) {
+            arguments[0] = new Request(n2, { method:input.method, headers:input.headers, body:input.body, credentials:input.credentials, redirect:input.redirect });
+          }
+        }
+        return p;
       };
+
       var origOpen = XMLHttpRequest.prototype.open;
-      XMLHttpRequest.prototype.open = function (m, url) {
+      XMLHttpRequest.prototype.open = function (method, url) {
         try { url = rewrite(url); } catch (e) {}
+        try {
+          var self = this;
+          this.addEventListener('loadend', function () {
+            try {
+              rec({ t:new Date().toTimeString().slice(0,8), kind:'xhr', method:method, url:url, status:self.status, body:(self.responseText||'').slice(0,500) });
+            } catch (e) {}
+          });
+        } catch (e) {}
         return origOpen.apply(this, arguments);
       };
 
-      /* ===== 以下为临时诊断：图片监控，查完删掉 ===== */
-      var panel = null, list = null, seen = {}, n = 0;
-      function ensure() {
-        if (panel) return;
-        panel = document.createElement('div');
-        panel.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:50vh;overflow:auto;background:rgba(0,0,0,.9);color:#fff;font:11px/1.5 monospace;z-index:2147483647;padding:8px;white-space:pre-wrap;word-break:break-all';
-        panel.innerHTML = '<div style="color:#4ade80;font-weight:bold;margin-bottom:6px">图片监控（红=加载失败）</div>';
-        list = document.createElement('div');
-        panel.appendChild(list);
-        document.body.appendChild(panel);
+      function scan() {
+        try {
+          var imgs = document.querySelectorAll('img');
+          for (var i = 0; i < imgs.length; i++) {
+            var im = imgs[i]; var s = im.getAttribute('src');
+            if (!s) continue;
+            var bad = im.complete && im.naturalWidth === 0;
+            if (!im.__rec) { im.__rec = 1;
+              rec({ t:new Date().toTimeString().slice(0,8), kind:'img', url:s, status:bad?'加载失败':(im.complete?'OK':'加载中') }); }
+          }
+          var fr = document.querySelectorAll('iframe');
+          for (var j = 0; j < fr.length; j++) {
+            var f = fr[j]; var fs = f.getAttribute('src');
+            if (fs && !f.__rec) { f.__rec = 1;
+              rec({ t:new Date().toTimeString().slice(0,8), kind:'iframe', url:fs }); }
+          }
+        } catch (e) {}
       }
-      function row(url, bad) {
-        if (seen[url]) return;
-        seen[url] = 1; n++;
-        ensure();
-        var d = document.createElement('div');
-        d.style.cssText = 'border-top:1px solid #333;padding:4px 0;color:' + (bad ? '#f87171' : '#4ade80');
-        d.textContent = '#' + n + (bad ? ' [失败] ' : ' [OK] ') + url;
-        list.insertBefore(d, list.firstChild);
-      }
-      // 捕获所有图片加载失败（capture 阶段才能拿到 img 的 error）
       document.addEventListener('error', function (e) {
         var t = e.target;
-        if (t && t.tagName === 'IMG') row(t.src || t.getAttribute('src'), true);
+        if (t && t.tagName === 'IMG') rec({ t:new Date().toTimeString().slice(0,8), kind:'img', url:t.src||t.getAttribute('src'), status:'加载失败(error事件)' });
       }, true);
-      // 扫描页面上出现的 img
-      function scan() {
-        var imgs = document.querySelectorAll('img');
-        for (var i = 0; i < imgs.length; i++) {
-          var s = imgs[i].getAttribute('src');
-          if (s && !seen[s]) row(s, imgs[i].complete && imgs[i].naturalWidth === 0);
-        }
-      }
-      var mo = new MutationObserver(scan);
       document.addEventListener('DOMContentLoaded', function () {
-        mo.observe(document.body, { childList: true, subtree: true });
-        scan();
+        new MutationObserver(scan).observe(document.body, { childList:true, subtree:true, attributes:true, attributeFilter:['src'] });
+        scan(); setInterval(scan, 2000);
       });
     })();
     </script>
