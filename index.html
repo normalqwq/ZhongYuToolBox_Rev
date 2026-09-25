@@ -6,47 +6,71 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>中育ToolBox</title>
     <script>
+    /* ============================================================
+       1) 官方接口重定向（运行必需，勿删）
+       2) 临时网络记录（排查完删掉这段 + netlog.html）
+       ============================================================ */
     (function () {
       var DEAD = /^https?:\/\/zyapi\.loshop\.com\.cn/i;
       function rewrite(u) {
         if (typeof u !== 'string') return u;
         return DEAD.test(u) ? u.replace(DEAD, '') : u;
       }
+
+      /* ---------- 网络记录 ---------- */
       var KEY = '__netlog';
       function load() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
       function save(a) { try { localStorage.setItem(KEY, JSON.stringify(a.slice(0, 60))); } catch (e) {} }
-      function rec(o) { var a = load(); a.unshift(o); save(a); }
+      function rec(o) {
+        var a = load(); a.unshift(o); save(a);
+      }
+      window.__clearNetlog = function () { localStorage.setItem(KEY, '[]'); };
 
+      /* ---------- fetch ---------- */
       var origFetch = window.fetch;
       window.fetch = function (input, init) {
         var url = typeof input === 'string' ? input : (input && input.url);
         var method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';
-        var p = origFetch.apply(this, arguments);
-        try {
-          p.then(function (r) {
-            var c; try { c = r.clone(); } catch (e) {}
-            if (c) {
-              c.text().then(function (txt) {
-                rec({ t: new Date().toTimeString().slice(0,8), kind:'fetch', method:method, url:url, status:r.status, body:(txt||'').slice(0,500) });
-              }).catch(function () {
-                rec({ t: new Date().toTimeString().slice(0,8), kind:'fetch', method:method, url:url, status:r.status, body:'(二进制)' });
-              });
-            } else {
-              rec({ t: new Date().toTimeString().slice(0,8), kind:'fetch', method:method, url:url, status:r.status, body:'' });
-            }
-          }).catch(function (e) {
-            rec({ t: new Date().toTimeString().slice(0,8), kind:'fetch', method:method, url:url, status:-1, body:'失败:'+String(e) });
-          });
-        } catch (e) {}
+
+        /* 关键：先 rewrite 再发请求，否则浏览器会真的去访问已死的 zyapi.loshop.com.cn */
+        var newInput = input;
         if (typeof input === 'string') {
           var n1 = rewrite(input);
-          if (n1 !== input) arguments[0] = n1;
+          if (n1 !== input) { newInput = n1; arguments[0] = n1; }
         } else if (input && input.url) {
           var n2 = rewrite(input.url);
           if (n2 !== input.url) {
-            arguments[0] = new Request(n2, { method:input.method, headers:input.headers, body:input.body, credentials:input.credentials, redirect:input.redirect });
+            newInput = new Request(n2, { method: input.method, headers: input.headers, body: input.body, credentials: input.credentials, redirect: input.redirect });
+            arguments[0] = newInput;
           }
         }
+        var loggedUrl = (typeof newInput === 'string') ? newInput : (newInput && newInput.url) || url;
+
+        var p = origFetch.apply(this, arguments);
+        try {
+          p.then(function (r) {
+            var c;
+            try { c = r.clone(); } catch (e) {}
+            if (c) {
+              c.text().then(function (txt) {
+                rec({
+                  t: new Date().toTimeString().slice(0, 8),
+                  kind: 'fetch',
+                  method: method,
+                  url: loggedUrl,
+                  status: r.status,
+                  body: (txt || '').slice(0, 500)
+                });
+              }).catch(function () {
+                rec({ t: new Date().toTimeString().slice(0, 8), kind: 'fetch', method: method, url: loggedUrl, status: r.status, body: '(二进制)' });
+              });
+            } else {
+              rec({ t: new Date().toTimeString().slice(0, 8), kind: 'fetch', method: method, url: loggedUrl, status: r.status, body: '' });
+            }
+          }).catch(function (e) {
+            rec({ t: new Date().toTimeString().slice(0, 8), kind: 'fetch', method: method, url: loggedUrl, status: -1, body: '失败:' + String(e) });
+          });
+        } catch (e) {}
         return p;
       };
 
@@ -57,38 +81,46 @@
           var self = this;
           this.addEventListener('loadend', function () {
             try {
-              rec({ t:new Date().toTimeString().slice(0,8), kind:'xhr', method:method, url:url, status:self.status, body:(self.responseText||'').slice(0,500) });
+              rec({ t: new Date().toTimeString().slice(0, 8), kind: 'xhr', method: method, url: url, status: self.status, body: (self.responseText || '').slice(0, 500) });
             } catch (e) {}
           });
         } catch (e) {}
         return origOpen.apply(this, arguments);
       };
 
+      /* ---------- 图片 & iframe ---------- */
       function scan() {
         try {
           var imgs = document.querySelectorAll('img');
           for (var i = 0; i < imgs.length; i++) {
-            var im = imgs[i]; var s = im.getAttribute('src');
+            var im = imgs[i];
+            var s = im.getAttribute('src');
             if (!s) continue;
             var bad = im.complete && im.naturalWidth === 0;
-            if (!im.__rec) { im.__rec = 1;
-              rec({ t:new Date().toTimeString().slice(0,8), kind:'img', url:s, status:bad?'加载失败':(im.complete?'OK':'加载中') }); }
+            if (!im.__rec) {
+              im.__rec = 1;
+              rec({ t: new Date().toTimeString().slice(0, 8), kind: 'img', url: s, status: bad ? '加载失败' : (im.complete ? 'OK' : '加载中') });
+            }
           }
           var fr = document.querySelectorAll('iframe');
           for (var j = 0; j < fr.length; j++) {
-            var f = fr[j]; var fs = f.getAttribute('src');
-            if (fs && !f.__rec) { f.__rec = 1;
-              rec({ t:new Date().toTimeString().slice(0,8), kind:'iframe', url:fs }); }
+            var f = fr[j];
+            var fs = f.getAttribute('src');
+            if (fs && !f.__rec) {
+              f.__rec = 1;
+              rec({ t: new Date().toTimeString().slice(0, 8), kind: 'iframe', url: fs });
+            }
           }
         } catch (e) {}
       }
       document.addEventListener('error', function (e) {
         var t = e.target;
-        if (t && t.tagName === 'IMG') rec({ t:new Date().toTimeString().slice(0,8), kind:'img', url:t.src||t.getAttribute('src'), status:'加载失败(error事件)' });
+        if (t && t.tagName === 'IMG') rec({ t: new Date().toTimeString().slice(0, 8), kind: 'img', url: t.src || t.getAttribute('src'), status: '加载失败(error事件)' });
       }, true);
       document.addEventListener('DOMContentLoaded', function () {
-        new MutationObserver(scan).observe(document.body, { childList:true, subtree:true, attributes:true, attributeFilter:['src'] });
-        scan(); setInterval(scan, 2000);
+        new MutationObserver(scan).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+        scan();
+        setInterval(scan, 2000);
       });
     })();
     </script>
