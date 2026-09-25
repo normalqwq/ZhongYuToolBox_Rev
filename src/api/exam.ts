@@ -44,7 +44,7 @@ export async function getExamTask(examId: number): Promise<any> {
 
 /** 单题 HTML（含解析）（复刻 fetchQstAnswerView） */
 export async function getQstAnswerView(qstId: number): Promise<string> {
-  const resp = await request<Response>(`${API_BASE_URL}/Question/View/${qstId}?showAnalysis=true`, {
+    const resp = await request<Response>(`/api/Question/View/${qstId}?showAnalysis=true`, {
     raw: true
   })
   // raw 模式下 request 返回原始 Response，需自行读取文本
