@@ -1,9 +1,13 @@
 let cache = null;
 const DISCOVERY = 'https://hagateway.zykj.org';
 
+// ★ 请求日志：记录最近 40 条经过本反代的请求
 let LOG = [];
 function push(e) {
-  try { LOG.unshift(e); if (LOG.length > 40) LOG.length = 40; } catch (err) {}
+  try {
+    LOG.unshift(e);
+    if (LOG.length > 40) LOG.length = 40;
+  } catch (err) {}
 }
 
 async function resolveUpstream(env) {
@@ -42,6 +46,7 @@ export async function onRequest(context) {
 
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
 
+  // 查看日志
   if (short === '/__log') return json({ 共: LOG.length, 最近请求: LOG });
   if (short === '/__clear') { LOG = []; return json({ ok: '已清空' }); }
 
@@ -64,13 +69,18 @@ export async function onRequest(context) {
     带Authorization: auth ? auth.slice(0, 32) + '…' : '没有',
   };
 
+  // 上游实际路径：ABP 框架接口（/api/services、/api/TokenAuth 等）保持 full；
+  // 非 ABP 的独立接口（Question/View、special/、CloudNotes/）上游不带 /api 前缀，需用 short
+  const NON_ABP = /^\/(Question|special|CloudNotes)(\/|$)/;
+  const upstreamPath = NON_ABP.test(short) ? short : full;
+
   let target;
   if (short.startsWith('/discovery/')) {
     target = DISCOVERY + full + url.search;
   } else {
     const up = await resolveUpstream(env);
     if (!up) { entry.结果 = '查不到服务器'; push(entry); return json({ __proxyError: '查不到学校服务器地址' }); }
-    target = up + full + url.search;
+    target = up + upstreamPath + url.search;
   }
   entry.转发到 = target;
 
@@ -87,6 +97,7 @@ export async function onRequest(context) {
     return json({ __proxyError: '连不上服务器', 目标: target, 详情: String(e) });
   }
 
+  // 记下响应（只取文本前 300 字符，二进制会跳过）
   try {
     const c = resp.clone();
     const t = await c.text();
