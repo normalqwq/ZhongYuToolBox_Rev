@@ -1,6 +1,11 @@
 let cache = null;
 const DISCOVERY = 'https://hagateway.zykj.org';
 
+let LOG = [];
+function push(e) {
+  try { LOG.unshift(e); if (LOG.length > 40) LOG.length = 40; } catch (err) {}
+}
+
 async function resolveUpstream(env) {
   if (env && env.UPSTREAM) return env.UPSTREAM;
   if (cache && Date.now() - cache.t < 3600000) return cache.v;
@@ -32,10 +37,13 @@ function cors() {
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
-  const full = url.pathname;                       // 例：/api/TokenAuth/Login
-  const short = full.replace(/^\/api/, '');        // 例：/TokenAuth/Login（只用来判断内部端点）
+  const full = url.pathname;
+  const short = full.replace(/^\/api/, '');
 
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
+
+  if (short === '/__log') return json({ 共: LOG.length, 最近请求: LOG });
+  if (short === '/__clear') { LOG = []; return json({ ok: '已清空' }); }
 
   if (short === '/__probe') {
     const code = (env && env.SCHOOL_CODE) || 'sxz';
@@ -48,15 +56,23 @@ export async function onRequest(context) {
     return json(info);
   }
 
-  // ★ 关键修复：转发时保留完整的 /api 前缀
+  const auth = request.headers.get('authorization');
+  const entry = {
+    时间: new Date().toISOString().slice(11, 19),
+    路径: full,
+    方法: request.method,
+    带Authorization: auth ? auth.slice(0, 32) + '…' : '没有',
+  };
+
   let target;
   if (short.startsWith('/discovery/')) {
-    target = DISCOVERY + full + url.search;        // /api/discovery/xxx → 官方网关
+    target = DISCOVERY + full + url.search;
   } else {
     const up = await resolveUpstream(env);
-    if (!up) return json({ __proxyError: '查不到学校服务器地址' });
-    target = up + full + url.search;               // /api/xxx → 学校服务器，不再剥掉 /api
+    if (!up) { entry.结果 = '查不到服务器'; push(entry); return json({ __proxyError: '查不到学校服务器地址' }); }
+    target = up + full + url.search;
   }
+  entry.转发到 = target;
 
   const headers = new Headers(request.headers);
   ['host', 'referer', 'origin', 'content-length'].forEach((k) => headers.delete(k));
@@ -65,7 +81,20 @@ export async function onRequest(context) {
 
   let resp;
   try { resp = await fetch(target, init); }
-  catch (e) { return json({ __proxyError: '连不上服务器', 目标: target, 详情: String(e) }); }
+  catch (e) {
+    entry.结果 = '连不上：' + String(e);
+    push(entry);
+    return json({ __proxyError: '连不上服务器', 目标: target, 详情: String(e) });
+  }
+
+  try {
+    const c = resp.clone();
+    const t = await c.text();
+    entry.上游状态 = resp.status;
+    entry.响应片段 = t.slice(0, 300);
+    entry.是否含未登录报错 = t.indexOf('CurrentUserDidNotLogin') !== -1;
+  } catch (e) { entry.响应片段 = '(读不到)'; }
+  push(entry);
 
   const out = new Response(resp.body, { status: resp.status, headers: resp.headers });
   const h = cors();
