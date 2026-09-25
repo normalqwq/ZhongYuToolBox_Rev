@@ -18,11 +18,21 @@ export function proxyUrl(url: string): string {
 }
 
 /** 图片代理：alicdn 源直接换 OSS 域名，其余走代理 */
+export function proxyUrl(url: string): string {
+  if (!url) return url
+  // 已是绝对 URL（http/https）原样返回，不走已死的下载代理
+  if (/^https?:\/\//i.test(url)) return url
+  // 相对路径拼前缀
+  return proxyBaseUrl.endsWith('/') ? proxyBaseUrl + url : proxyBaseUrl + '/' + url
+}
 export function proxyImgSrc(url: string): string {
   if (!url || typeof url !== 'string') return url
+  // alicdn 旧域名换 OSS 公共读域名
   if (url.startsWith('http://sxz.alicdn.zykj.org/')) {
     return url.replace('http://sxz.alicdn.zykj.org/', 'https://ezy-sxz.oss-cn-hangzhou.aliyuncs.com/')
   }
+  // 已是绝对 URL（含 OSS 直连）原样返回
+  if (/^https?:\/\//i.test(url)) return url
   return proxyUrl(url)
 }
 
