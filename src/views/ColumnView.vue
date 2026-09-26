@@ -379,7 +379,7 @@ function goMessage(m: AppMessage) {
 const token = computed(() => auth.token || '')
 const newTabUrl = computed(
   () =>
-    `/navPage.html?apiHost=${encodeURIComponent('/api/')}&apiToken=${token.value}#/list?messageType=pager`
+    `/navPage.html?apiHost=${encodeURIComponent(window.location.origin)}&apiToken=${token.value}#/list?messageType=pager`
 )
 function openInNewTab() {
   window.open(newTabUrl.value, '_blank')
