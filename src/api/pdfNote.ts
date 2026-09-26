@@ -3,12 +3,18 @@
  *
  * 流程：加载模板 bin -> PDF 转图 -> 上传模板到 OSS -> 逐页上传图片并构建
  * resourceList（每页 9 条固定结构）-> Resources/AddOrUpdate -> Notes/AddOrUpdate
+ *
+ * 改造说明：
+ * - 原 apiBase() 读 localStorage.apiBaseUrl || 'https://zyapi.loshop.com.cn'，两路径均
+ *   无法走反代（前者可能是 http 绝对地址触发 mixed-content；后者被 index.html 劫持后
+ *   缺 /api 前缀），统一改为同源 /api/CloudNotes/... 前缀，与 note.ts 保持一致
+ * - 模板文件路径加前导 / 改为根相对，避免在子路由下被解析成 /note/example/...
  */
 import { aesEncrypt } from '@/utils/crypto'
 import { uploadFile } from '@/utils/oss'
 import { convertPdfToImages, type PdfPageImage } from '@/utils/pdf'
 
-const TEMPLATE_BASE = 'example/'
+const TEMPLATE_BASE = '/example/'
 const TEMPLATE_UUID = 'a888b5fb-e65d-4611-a3af-1f80a0fb6ced'
 
 /** 图片资源固定文件名（复刻 pdf-upload.js） */
@@ -58,10 +64,6 @@ const TEMPLATE_RESOURCES: Array<{ rel: string; md5: string; resourceType: number
 const IMG_MD5 = '4126E637D965204140D4982A1B847283'
 
 let templateFilesCache: Record<string, Blob> | null = null
-
-function apiBase(): string {
-  return localStorage.getItem('apiBaseUrl') || 'https://zyapi.loshop.com.cn'
-}
 
 /** 生成自定义 fileId（复刻 generateCustomFileId，须含 g-z 字符） */
 export function generateCustomFileId(prefix = 'h', length = 32): string {
@@ -134,7 +136,7 @@ interface ResourceEntry {
 async function saveResourceList(resourceList: ResourceEntry[]): Promise<void> {
   const token = localStorage.getItem('token')
   const data = aesEncrypt(JSON.stringify(resourceList))
-  const resp = await fetch(`${apiBase()}/CloudNotes/api/Resources/AddOrUpdate`, {
+  const resp = await fetch('/api/CloudNotes/api/Resources/AddOrUpdate', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + token,
@@ -154,7 +156,7 @@ async function saveNote(
   todayStr: string
 ): Promise<void> {
   const token = localStorage.getItem('token')
-  const fileUrl = `http://ezy-sxz.oss-cn-hangzhou.aliyuncs.com/note_v2/res/${userId}/${todayStr}/${customFileId}/`
+  const fileUrl = `https://ezy-sxz.oss-cn-hangzhou.aliyuncs.com/note_v2/res/${userId}/${todayStr}/${customFileId}/`
   const data = aesEncrypt(
     JSON.stringify({
       fileId: customFileId,
@@ -164,7 +166,7 @@ async function saveNote(
       fileUrl
     })
   )
-  const resp = await fetch(`${apiBase()}/CloudNotes/api/Notes/AddOrUpdate`, {
+  const resp = await fetch('/api/CloudNotes/api/Notes/AddOrUpdate', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + token,
@@ -222,7 +224,6 @@ export async function uploadPdfAsNote(opts: UploadPdfOptions): Promise<PdfPageIm
   // 步骤3：上传模板文件到 OSS
   report(50, '正在上传模板文件...')
   const ossPageHash = generatePageHash()
-
   // 通过上传首个模板文件获取 OSS 根地址
   report(52, '正在获取OSS配置...')
   const testFileUrl = await uploadFile(
@@ -235,7 +236,6 @@ export async function uploadPdfAsNote(opts: UploadPdfOptions): Promise<PdfPageIm
   const urlObj = new URL(testFileUrl)
   const ossRoot = urlObj.protocol + '//' + urlObj.host + '/'
   delete templates['page_router.bin']
-
   for (const f of Object.keys(templates)) {
     if (f.includes('/')) {
       await uploadFile(templates[f], userId, 'note_v2', customFileId, ossPageHash + '/' + f)
@@ -247,11 +247,9 @@ export async function uploadPdfAsNote(opts: UploadPdfOptions): Promise<PdfPageIm
   const resourceList: ResourceEntry[] = []
   const ossBase = `${ossRoot}note_v2/res/${userId}/${todayStr}/${customFileId}`
   const baseOss = `${ossBase}/${ossPageHash}`
-
   for (let pageIndex = 0; pageIndex < pdfImages.length; pageIndex++) {
     const pageHash = generatePageHash()
     const pageBase = `/storage/emulated/0/Android/data/com.friday.cloudsnote/userNote/${userId}/note/${customFileId}/${pageHash}`
-
     await uploadFile(
       pdfImages[pageIndex].blob,
       userId,
@@ -259,7 +257,6 @@ export async function uploadPdfAsNote(opts: UploadPdfOptions): Promise<PdfPageIm
       customFileId,
       `${pageHash}/${IMG_FILENAME}`
     )
-
     // 8 条模板资源
     for (const tpl of TEMPLATE_RESOURCES) {
       resourceList.push({
@@ -276,7 +273,6 @@ export async function uploadPdfAsNote(opts: UploadPdfOptions): Promise<PdfPageIm
         wasDeleted: false
       })
     }
-
     // 图片资源：resourceType 为 pageIndex，md5 固定
     resourceList.push({
       id: `${pageBase}/res/image/${IMG_FILENAME}`,
@@ -291,7 +287,6 @@ export async function uploadPdfAsNote(opts: UploadPdfOptions): Promise<PdfPageIm
       toBeUploaded: false,
       wasDeleted: false
     })
-
     report(
       65 + ((pageIndex + 1) / pdfImages.length) * 25,
       `已上传第 ${pageIndex + 1}/${pdfImages.length} 页`
@@ -301,10 +296,8 @@ export async function uploadPdfAsNote(opts: UploadPdfOptions): Promise<PdfPageIm
   // 步骤5、6：保存资源与笔记
   report(92, '正在保存资源...')
   await saveResourceList(resourceList)
-
   report(97, '正在保存笔记...')
   await saveNote(userId, customFileId, noteName, todayStr)
-
   report(100, '上传完成！')
   return pdfImages
 }
