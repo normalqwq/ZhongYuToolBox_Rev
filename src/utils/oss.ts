@@ -1,24 +1,16 @@
 /**
  * 阿里云 OSS 直传封装（1:1 复刻 index.js 的 uploadFile / fetchOssBaseUrl）
  *
- * 改造说明：原版用 localStorage.apiBaseUrl（绝对 URL sxz.api.zykj.org）拼请求，
- * 触发 mixed-content + 跨域。现统一改为同源 /api/ 前缀，由 functions/api 反代转发。
+ * 改造说明：
+ * - STS 凭证请求改为同源 /api/ 前缀，由 functions/api 反代转发
+ * - ali-oss 客户端显式指定 https endpoint，避免内部默认 http
  */
 import OSS from 'ali-oss'
 import CryptoJS from 'crypto-js'
 
-/** 上传类型 -> fc 数值映射（复刻 V_MAP） */
 const V_MAP: Record<string, number> = {
-  note_v2: 1,
-  eval_v2: 2,
-  quora_v2: 3,
-  mistake_v2: 4,
-  study_v2: 5,
-  column_v2: 6,
-  paper_v2: 7,
-  revise_v2: 8,
-  selection_v2: 9,
-  manage_v2: 19
+  note_v2: 1, eval_v2: 2, quora_v2: 3, mistake_v2: 4, study_v2: 5,
+  column_v2: 6, paper_v2: 7, revise_v2: 8, selection_v2: 9, manage_v2: 19
 }
 const G_MAP: Record<string, number> = { res: 1 }
 const FR = 'res'
@@ -26,7 +18,6 @@ const FT = 2
 const FE = ''
 const FO = '0'
 
-/** 缓存的 OSS 根地址 */
 let ossBaseUrl = ''
 export function getOssBaseUrl(): string {
   return ossBaseUrl
@@ -35,12 +26,10 @@ export function setOssBaseUrl(url: string): void {
   ossBaseUrl = url
 }
 
-/** MD5 大写（复刻 index.js md5） */
 function md5Upper(str: string): string {
   return CryptoJS.MD5(str).toString().toUpperCase()
 }
 
-/** 生成 UUID 风格 nonce（复刻 generateNonce） */
 export function generateNonce(): string {
   return (String(1e7) + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
     (
@@ -58,7 +47,7 @@ export interface StsCredential {
   endpoint?: string
 }
 
-/** 请求 STS 临时凭证（复刻 GenerateTokenV2Async 调用） */
+/** 请求 STS 临时凭证（同源 /api/ 前缀，由反代转发到 sxz.api.zykj.org） */
 export async function generateStsToken(
   userId: string,
   fc: string,
@@ -101,6 +90,16 @@ export async function generateStsToken(
   return data.result as StsCredential
 }
 
+/** 拼接 OSS endpoint（强制 https） */
+function buildOssEndpoint(cred: StsCredential): string {
+  if (cred.endpoint) {
+    return cred.endpoint.replace(/^http:/, 'https:').replace(/\/+$/, '')
+  }
+  const bucket = cred.bucket || 'ezy-sxz'
+  const region = cred.region || 'oss-cn-hangzhou'
+  return `https://${bucket}.${region}.aliyuncs.com`
+}
+
 export async function uploadFile(
   file: Blob | File,
   userId: string,
@@ -112,17 +111,19 @@ export async function uploadFile(
   const remoteFileName = fileNameInput.trim() || (file as File).name
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
   const result = await generateStsToken(userId, fc, nonce)
+  const endpoint = buildOssEndpoint(result)
   const client = new OSS({
     region: result.region || 'oss-cn-hangzhou',
     accessKeyId: result.accessKeyId,
     accessKeySecret: result.accessKeySecret,
     stsToken: result.securityToken,
-    bucket: result.bucket
+    bucket: result.bucket,
+    endpoint: endpoint,
+    secure: true
   })
   const remoteFile = `${fc}/${FR}/${userId}/${dateStr}/${nonce}/${remoteFileName}`
   await client.put(remoteFile, file as any)
-  const endpoint = result.endpoint || `https://${result.bucket}.oss-cn-hangzhou.aliyuncs.com`
-  return endpoint.replace(/\/+$/, '') + '/' + remoteFile
+  return endpoint + '/' + remoteFile
 }
 
 export async function fetchOssBaseUrl(userId: string): Promise<string> {
@@ -144,9 +145,8 @@ export async function fetchOssBaseUrl(userId: string): Promise<string> {
   })
   const data = await resp.json()
   if (!data.result) throw new Error('获取 OSS 配置失败')
-  const region = data.result.region || 'oss-cn-hangzhou'
-  const bucket = data.result.bucket || 'ezy-sxz'
-  ossBaseUrl = `https://${bucket}.${region}.aliyuncs.com/`
+  const endpoint = buildOssEndpoint(data.result)
+  ossBaseUrl = endpoint + '/'
   return ossBaseUrl
 }
 
