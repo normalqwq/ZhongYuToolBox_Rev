@@ -9,6 +9,9 @@
  *   proxyImgSrc 会拼到已死的 zytbdownloadagent.loshop.com.cn/download/ → Failed to fetch
  * - 现对相对路径直接拼 pdf2img.zyai.cc 同源前缀；绝对 URL 仍走 proxyImgSrc
  *   （用于把 http://sxz.alicdn.zykj.org/ 改写成 OSS 公共读域名）
+ * - 实测 pdf2img.zyai.cc 返回的 imgPaths 是 http://ezy-word2html-imgs.oss-... 绝对
+ *   URL，在 https 站点下 fetch 会被 mixed-content 拦截 → Failed to fetch；
+ *   对 http URL 统一升级 https（OSS 公共读 bucket 均支持 https，已实测 200 OK）
  */
 import CryptoJS from 'crypto-js'
 import JSZip from 'jszip'
@@ -65,11 +68,17 @@ export async function blobToMd5(blob: Blob): Promise<string> {
 }
 
 /** 把 pdf2img 返回的路径转换为可 fetch 的 URL
- *  - 绝对 URL：交 proxyImgSrc 处理 alicdn 改写或原样返回
+ *  - 绝对 URL：先交 proxyImgSrc 处理 alicdn 改写（sxz.alicdn → ezy-sxz）
+ *  - 绝对 URL 若仍是 http://（如 ezy-word2html-imgs.oss-...），强制升级 https
+ *    避免 https 站点下被 mixed-content 拦截
  *  - 相对路径：拼到 pdf2img.zyai.cc 同源（避免走已死的下载代理） */
 function resolveImgUrl(raw: string): string {
   if (!raw) return raw
-  if (/^https?:\/\//i.test(raw)) return proxyImgSrc(raw)
+  if (/^https?:\/\//i.test(raw)) {
+    const proxied = proxyImgSrc(raw)
+    // OSS 公共读 bucket 都支持 https；http:// 在 https 页面会被 mixed-content 拦死
+    return proxied.replace(/^http:\/\//i, 'https://')
+  }
   // 去掉前导斜杠后拼接，保证格式统一
   return PDF2IMG_BASE + raw.replace(/^\/+/, '')
 }
