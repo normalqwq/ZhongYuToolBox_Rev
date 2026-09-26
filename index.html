@@ -15,11 +15,18 @@
     (function () {
       var DEAD = /^https?:\/\/zyapi\.loshop\.com\.cn/i;
       var LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i;
+      /* pdf2img 转图后的图片 bucket：未配置 CORS（OPTIONS 403、无 ACAO 头），
+         浏览器跨域 fetch().blob() 会被拦，必须改走同源 /imgproxy。
+         只精确匹配这一个桶；ezy-sxz 桶已配 CORS（图库上传/读取正常），绝不能动它，
+         否则 ali-oss 的 XHR PUT 上传会被误改写。 */
+      var PDF2IMG_BUCKET = /^https?:\/\/ezy-word2html-imgs\.oss-cn-hangzhou\.aliyuncs\.com\//i;
       function rewrite(u) {
         if (typeof u !== 'string') return u;
         /* 1) 已死的 zyapi.loshop.com.cn → 同源 /api 前缀 */
         if (DEAD.test(u)) return u.replace(DEAD, '');
-        /* 2) http:// 升级 https://（绕过 mixed-content 拦截），但不碰 localhost */
+        /* 2) pdf2img 图片桶（无 CORS）→ 同源图片代理（同时升级 https） */
+        if (PDF2IMG_BUCKET.test(u)) return '/imgproxy?url=' + encodeURIComponent(u.replace(/^http:\/\//i, 'https://'));
+        /* 3) 其它 http:// 升级 https://（绕过 mixed-content 拦截），但不碰 localhost */
         if (/^http:\/\//i.test(u) && !LOCAL.test(u)) return u.replace(/^http:\/\//i, 'https://');
         return u;
       }
