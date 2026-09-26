@@ -14,9 +14,14 @@
        ============================================================ */
     (function () {
       var DEAD = /^https?:\/\/zyapi\.loshop\.com\.cn/i;
+      var LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i;
       function rewrite(u) {
         if (typeof u !== 'string') return u;
-        return DEAD.test(u) ? u.replace(DEAD, '') : u;
+        /* 1) 已死的 zyapi.loshop.com.cn → 同源 /api 前缀 */
+        if (DEAD.test(u)) return u.replace(DEAD, '');
+        /* 2) http:// 升级 https://（绕过 mixed-content 拦截），但不碰 localhost */
+        if (/^http:\/\//i.test(u) && !LOCAL.test(u)) return u.replace(/^http:\/\//i, 'https://');
+        return u;
       }
 
       /* ---------- 网络记录 ---------- */
