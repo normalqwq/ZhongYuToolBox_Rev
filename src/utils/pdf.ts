@@ -3,12 +3,19 @@
  * - convertPdfToImages: 调 pdf2img.zyai.cc 转图并下载为 webp
  * - blobToWebp / blobToMd5: 图片格式转换与 MD5
  * - zipBlobs: 打包为 zip（用于下载）
+ *
+ * 改造说明：
+ * - 原 convertPdfToImages 直接 proxyImgSrc(imgPaths[i])，若 pdf2img 返回相对路径，
+ *   proxyImgSrc 会拼到已死的 zytbdownloadagent.loshop.com.cn/download/ → Failed to fetch
+ * - 现对相对路径直接拼 pdf2img.zyai.cc 同源前缀；绝对 URL 仍走 proxyImgSrc
+ *   （用于把 http://sxz.alicdn.zykj.org/ 改写成 OSS 公共读域名）
  */
 import CryptoJS from 'crypto-js'
 import JSZip from 'jszip'
 import { proxyImgSrc } from '@/utils/proxy'
 
 const PDF2IMG_ENDPOINT = 'https://pdf2img.zyai.cc/upload'
+const PDF2IMG_BASE = 'https://pdf2img.zyai.cc/'
 
 export interface PdfPageImage {
   pageNum: number
@@ -57,6 +64,16 @@ export async function blobToMd5(blob: Blob): Promise<string> {
   return CryptoJS.MD5(wordArray).toString().toUpperCase()
 }
 
+/** 把 pdf2img 返回的路径转换为可 fetch 的 URL
+ *  - 绝对 URL：交 proxyImgSrc 处理 alicdn 改写或原样返回
+ *  - 相对路径：拼到 pdf2img.zyai.cc 同源（避免走已死的下载代理） */
+function resolveImgUrl(raw: string): string {
+  if (!raw) return raw
+  if (/^https?:\/\//i.test(raw)) return proxyImgSrc(raw)
+  // 去掉前导斜杠后拼接，保证格式统一
+  return PDF2IMG_BASE + raw.replace(/^\/+/, '')
+}
+
 /** PDF 转图片（调服务端 pdf2img，再下载转 webp） */
 export async function convertPdfToImages(
   pdfFile: File,
@@ -64,29 +81,24 @@ export async function convertPdfToImages(
 ): Promise<PdfPageImage[]> {
   const formData = new FormData()
   formData.append('file', pdfFile, pdfFile.name)
-
   onProgress?.(0.1, 0, 1)
-
   const resp = await fetch(PDF2IMG_ENDPOINT, { method: 'POST', body: formData })
   if (!resp.ok) throw new Error('PDF转图片失败: HTTP ' + resp.status)
   const result = await resp.json()
   if (!result.imgPaths || !Array.isArray(result.imgPaths)) {
     throw new Error('PDF转图片返回格式错误: ' + JSON.stringify(result))
   }
-
   const imgPaths: string[] = result.imgPaths
   const images: PdfPageImage[] = []
-
   for (let i = 0; i < imgPaths.length; i++) {
     onProgress?.((i + 1) / imgPaths.length * 0.9, i + 1, imgPaths.length)
-    const imgUrl = proxyImgSrc(imgPaths[i])
+    const imgUrl = resolveImgUrl(imgPaths[i])
     const imgResp = await fetch(imgUrl)
     if (!imgResp.ok) throw new Error('下载第 ' + (i + 1) + ' 页图片失败: ' + imgResp.status)
     let blob = await imgResp.blob()
     if (blob.type !== 'image/webp') blob = await convertBlobToWebp(blob)
     images.push({ pageNum: i + 1, blob, url: imgPaths[i] })
   }
-
   onProgress?.(1.0, imgPaths.length, imgPaths.length)
   return images
 }
