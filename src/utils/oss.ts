@@ -3,21 +3,33 @@
  *
  * 改造说明：
  * - STS 凭证请求改为同源 /api/ 前缀，由 functions/api 反代转发
- * - ali-oss 客户端显式指定 https endpoint，避免内部默认 http
+ * - ali-oss 客户端不传 endpoint，由 region + bucket 自动拼接（避免 bucket 名重复）
+ * - 所有 URL 强制 https，避免 mixed-content
  */
 import OSS from 'ali-oss'
 import CryptoJS from 'crypto-js'
 
+/** 上传类型 -> fc 数值映射（复刻 V_MAP） */
 const V_MAP: Record<string, number> = {
-  note_v2: 1, eval_v2: 2, quora_v2: 3, mistake_v2: 4, study_v2: 5,
-  column_v2: 6, paper_v2: 7, revise_v2: 8, selection_v2: 9, manage_v2: 19
+  note_v2: 1,
+  eval_v2: 2,
+  quora_v2: 3,
+  mistake_v2: 4,
+  study_v2: 5,
+  column_v2: 6,
+  paper_v2: 7,
+  revise_v2: 8,
+  selection_v2: 9,
+  manage_v2: 19
 }
+/** 资源分类 -> fr 数值映射（复刻 G_MAP） */
 const G_MAP: Record<string, number> = { res: 1 }
 const FR = 'res'
 const FT = 2
 const FE = ''
 const FO = '0'
 
+/** 缓存的 OSS 根地址 */
 let ossBaseUrl = ''
 export function getOssBaseUrl(): string {
   return ossBaseUrl
@@ -26,10 +38,12 @@ export function setOssBaseUrl(url: string): void {
   ossBaseUrl = url
 }
 
+/** MD5 大写（复刻 index.js md5） */
 function md5Upper(str: string): string {
   return CryptoJS.MD5(str).toString().toUpperCase()
 }
 
+/** 生成 UUID 风格 nonce（复刻 generateNonce） */
 export function generateNonce(): string {
   return (String(1e7) + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
     (
@@ -45,6 +59,13 @@ export interface StsCredential {
   securityToken: string
   bucket?: string
   endpoint?: string
+}
+
+/** 拼接 OSS 访问 URL（强制 https，bucket + region 自动拼接） */
+function buildOssUrl(cred: StsCredential, remoteFile: string): string {
+  const bucket = cred.bucket || 'ezy-sxz'
+  const region = cred.region || 'oss-cn-hangzhou'
+  return `https://${bucket}.${region}.aliyuncs.com/${remoteFile}`
 }
 
 /** 请求 STS 临时凭证（同源 /api/ 前缀，由反代转发到 sxz.api.zykj.org） */
@@ -90,16 +111,14 @@ export async function generateStsToken(
   return data.result as StsCredential
 }
 
-/** 拼接 OSS endpoint（强制 https） */
-function buildOssEndpoint(cred: StsCredential): string {
-  if (cred.endpoint) {
-    return cred.endpoint.replace(/^http:/, 'https:').replace(/\/+$/, '')
-  }
-  const bucket = cred.bucket || 'ezy-sxz'
-  const region = cred.region || 'oss-cn-hangzhou'
-  return `https://${bucket}.${region}.aliyuncs.com`
-}
-
+/**
+ * 上传文件到 OSS（复刻 uploadFile，返回文件完整 URL）
+ * @param file 文件/Blob
+ * @param userId 用户 ID
+ * @param fc 上传类型前缀，如 note_v2
+ * @param nonceInput 指定 nonce，留空自动生成
+ * @param fileNameInput 指定远端文件名（可含子路径），留空用 file.name
+ */
 export async function uploadFile(
   file: Blob | File,
   userId: string,
@@ -111,21 +130,22 @@ export async function uploadFile(
   const remoteFileName = fileNameInput.trim() || (file as File).name
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
   const result = await generateStsToken(userId, fc, nonce)
-  const endpoint = buildOssEndpoint(result)
+  // 不传 endpoint，让 ali-oss 根据 region 自动拼默认 endpoint
+  // （传 endpoint 会重复 bucket 名：ezy-sxz.ezy-sxz.oss-...）
   const client = new OSS({
     region: result.region || 'oss-cn-hangzhou',
     accessKeyId: result.accessKeyId,
     accessKeySecret: result.accessKeySecret,
     stsToken: result.securityToken,
     bucket: result.bucket,
-    endpoint: endpoint,
     secure: true
   })
   const remoteFile = `${fc}/${FR}/${userId}/${dateStr}/${nonce}/${remoteFileName}`
   await client.put(remoteFile, file as any)
-  return endpoint + '/' + remoteFile
+  return buildOssUrl(result, remoteFile)
 }
 
+/** 获取并缓存 OSS 根地址（复刻 fetchOssBaseUrl） */
 export async function fetchOssBaseUrl(userId: string): Promise<string> {
   if (ossBaseUrl) return ossBaseUrl
   const token = localStorage.getItem('token')
@@ -145,11 +165,11 @@ export async function fetchOssBaseUrl(userId: string): Promise<string> {
   })
   const data = await resp.json()
   if (!data.result) throw new Error('获取 OSS 配置失败')
-  const endpoint = buildOssEndpoint(data.result)
-  ossBaseUrl = endpoint + '/'
+  ossBaseUrl = buildOssUrl(data.result, '')
   return ossBaseUrl
 }
 
+/** 从服务端获取当前登录用户 ID（复刻 getUserId） */
 export async function fetchUserId(): Promise<string> {
   const token = localStorage.getItem('token')
   if (!token) throw new Error('localStorage 中未找到 token')
