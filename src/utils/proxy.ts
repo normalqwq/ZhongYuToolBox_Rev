@@ -8,20 +8,56 @@
 import { PROXY_REMOTE, PROXY_LOCAL, PROXY_LOCAL_PING } from '@/config'
 /** 当前生效的代理基地址（被 proxyUrl / proxyImgSrc / getProxyBaseUrl 共用） */
 let proxyBaseUrl: string = PROXY_REMOTE
-/** 拼接资源代理地址 */
+/**
+ * alicdn 旧域名（sxz.alicdn.zykj.org）已不可用：
+ * - https 证书失效（SSL 握手失败）
+ * - http 在 https 页面被 mixed-content 拦截
+ * 同一文件在 OSS 公共读桶中存在且可访问，统一换域名。
+ */
+function replaceAlicdnHost(url: string): string {
+  const m = url.match(/^https?:\/\/([a-z0-9-]+)\.alicdn\.zykj\.org\/(.*)$/i)
+  if (m) return `https://ezy-${m[1]}.oss-cn-hangzhou.aliyuncs.com/${m[2]}`
+  return url
+}
+/** 拼接资源代理地址（视频/图片等浏览器直连场景，无需 CORS） */
 export function proxyUrl(url: string): string {
   if (!url) return url
+  // alicdn 旧域名换 OSS 公共读域名
+  if (/^https?:\/\/[a-z0-9-]+\.alicdn\.zykj\.org\//i.test(url)) {
+    return replaceAlicdnHost(url)
+  }
   // 已是绝对 URL（http/https）原样返回，不走已死的下载代理
   if (/^https?:\/\//i.test(url)) return url
   // 相对路径拼前缀
   return proxyBaseUrl.endsWith('/') ? proxyBaseUrl + url : proxyBaseUrl + '/' + url
 }
+/** imgproxy 白名单后缀（与 functions/imgproxy.js 保持一致） */
+const IMGPROXY_ALLOWED = ['.aliyuncs.com', '.zyai.cc', '.zykj.org']
+/**
+ * 需要 fetch 读取内容时的 URL（PDF 预览/下载/PPT 等）。
+ * OSS 未配置 CORS 头，直接 fetch 会被浏览器拦截（Failed to fetch），
+ * 走同源 /imgproxy 由服务端代拉并补 CORS 头。
+ */
+export function proxyFetchUrl(url: string): string {
+  const u = proxyUrl(url)
+  if (!/^https?:\/\//i.test(u)) return u
+  try {
+    const host = new URL(u).hostname.toLowerCase()
+    const allowed = IMGPROXY_ALLOWED.some(
+      (suf) => host === suf.slice(1) || host.endsWith(suf)
+    )
+    if (allowed) return '/imgproxy?url=' + encodeURIComponent(u)
+  } catch {
+    /* URL 解析失败则原样返回 */
+  }
+  return u
+}
 /** 图片代理：alicdn 源直接换 OSS 域名，其余走代理 */
 export function proxyImgSrc(url: string): string {
   if (!url || typeof url !== 'string') return url
-  // alicdn 旧域名换 OSS 公共读域名
-  if (url.startsWith('http://sxz.alicdn.zykj.org/')) {
-    return url.replace('http://sxz.alicdn.zykj.org/', 'https://ezy-sxz.oss-cn-hangzhou.aliyuncs.com/')
+  // alicdn 旧域名换 OSS 公共读域名（http/https 都处理）
+  if (/^https?:\/\/[a-z0-9-]+\.alicdn\.zykj\.org\//i.test(url)) {
+    return replaceAlicdnHost(url)
   }
   // 已是绝对 URL（含 OSS 直连）原样返回
   if (/^https?:\/\//i.test(url)) return url
