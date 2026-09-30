@@ -71,7 +71,7 @@ export async function onRequest(context) {
 
   // 上游实际路径：ABP 框架接口（/api/services、/api/TokenAuth 等）保持 full；
   // 非 ABP 的独立接口（Question/View、special/、CloudNotes/）上游不带 /api 前缀，需用 short
-  const NON_ABP = /^\/(Question|special|CloudNotes)(\/|$)/;
+  const NON_ABP = /^\/(Question|special|CloudNotes|SelfStudy)(\/|$)/;
   const upstreamPath = NON_ABP.test(short) ? short : full;
 
   let target;
