@@ -26,7 +26,7 @@
       <div v-else-if="kind === 'pptx'" class="pptx-box">
         <vue-office-pptx
           v-if="!pptxError"
-          :src="url"
+          :src="proxyFetchUrl(url)"
           class="pptx-el"
           @error="onPptxError"
         />
@@ -54,7 +54,7 @@ import { ArrowLeft, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import DPlayer from 'dplayer'
 import VueOfficePptx from '@vue-office/pptx'
-import { proxyUrl } from '@/utils/proxy'
+import { proxyUrl, proxyFetchUrl } from '@/utils/proxy'
 
 const route = useRoute()
 const router = useRouter()
@@ -80,7 +80,7 @@ async function download() {
   if (!url || downloading.value) return
   downloading.value = true
   try {
-    const resp = await fetch(proxyUrl(url))
+    const resp = await fetch(proxyFetchUrl(url))
     if (!resp.ok) throw new Error('下载失败: ' + resp.status)
     const blob = await resp.blob()
     const objUrl = URL.createObjectURL(blob)
@@ -117,7 +117,7 @@ async function renderPdf(src: string) {
     }
     const container = pdfRef.value
     container.innerHTML = ''
-    const doc = await pdfjs.getDocument(proxyUrl(src)).promise
+    const doc = await pdfjs.getDocument(proxyFetchUrl(src)).promise
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i)
       const viewport = page.getViewport({ scale: 1.4 })
