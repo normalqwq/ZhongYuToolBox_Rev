@@ -124,12 +124,14 @@ import { ArrowLeft, ArrowRight, Document, Download, PictureFilled, MoreFilled } 
 import JSZip from 'jszip'
 import { jsPDF } from 'jspdf'
 import { getNoteResources, getNoteResourcesForZip, type NoteResource } from '@/api/note'
-import { proxyUrl, proxyImgSrc } from '@/utils/proxy'
+// fetch 读取字节流的场景必须用 proxyFetchUrl 走同源 /imgproxy，否则 OSS 无 CORS 头会被拦截
+import { proxyImgSrc, proxyFetchUrl } from '@/utils/proxy'
 import { useIsMobile } from '@/composables/useIsMobile'
 
 const { isMobile } = useIsMobile()
 
-const OSS_BASE = 'http://friday-note.oss-cn-hangzhou.aliyuncs.com/'
+// 必须使用 https，否则在 https 站点下会触发混合内容（mixed content）拦截
+const OSS_BASE = 'https://friday-note.oss-cn-hangzhou.aliyuncs.com/'
 const PDF_FOOTER = 'https://gl.zytb.loshop.com.cn'
 /** 仅图片资源可渲染，模板 .bin 等需过滤 */
 const IMG_EXT_RE = /\.(jpg|jpeg|png|webp|gif|bmp)$/i
@@ -185,7 +187,9 @@ function onActionCommand(cmd: string) {
 function toEntry(item: NoteResource): ResEntry {
   const full = item.ossImageUrl.startsWith('http') ? item.ossImageUrl : OSS_BASE + item.ossImageUrl
   return {
-    url: proxyUrl(full),
+    // url 仅用于 fetch 读取字节流（导出 PDF），走 /imgproxy 绕过 OSS 的 CORS 限制
+    url: proxyFetchUrl(full),
+    // imgSrc 用于 <img> 显示，img 标签不受 CORS 限制，无需代理
     imgSrc: proxyImgSrc(full),
     ext: item.ossImageUrl.split('.').pop() || ''
   }
@@ -210,7 +214,7 @@ async function loadResources() {
         map[page].thumbnail = toEntry(item)
       } else {
         // 其余为页内插入的图片
-        map[page].originals.push(toEntry(item))
+        map[page].originals.push(toEntry(item)
       }
     }
     pageMap.value = map
@@ -224,7 +228,7 @@ async function loadResources() {
   }
 }
 
-/** 图片转 DataURL（复刻 loadImageAsDataURL） */
+/** 图片转 DataURL（复刻 loadImageAsDataURL）；入参 url 已是 /imgproxy 代理地址 */
 async function loadImageAsDataURL(url: string): Promise<string> {
   const res = await fetch(url)
   const blob = await res.blob()
@@ -298,12 +302,14 @@ async function downloadZip() {
 
     for (let i = 0; i < list.length; i++) {
       const item = list[i]
-      const url = proxyUrl(
-        item.ossImageUrl.startsWith('http') ? item.ossImageUrl : OSS_BASE + item.ossImageUrl
-      )
+      // 扩展名判断必须用原始地址：代理后地址形如 /imgproxy?url=...，无法匹配图片后缀
+      const full = item.ossImageUrl.startsWith('http')
+        ? item.ossImageUrl
+        : OSS_BASE + item.ossImageUrl
       progressPercent.value = Math.round(((i + 1) / list.length) * 100)
-      if (/\.(jpg|jpeg|png|webp)$/.test(url)) {
-        const image = await fetch(url).then((r) => r.blob())
+      if (/\.(jpg|jpeg|png|webp)$/i.test(full)) {
+        // OSS 桶无 CORS 头，fetch 读字节流必须走同源 /imgproxy 代理
+        const image = await fetch(proxyFetchUrl(full)).then((r) => r.blob())
         if (!count[item.pageIndex]) count[item.pageIndex] = 1
         const suffix = item.resourceType === 2 ? 'thumbnail' : count[item.pageIndex]++
         zip.file(`${item.pageIndex + 1}-${suffix}.jpg`, image)
