@@ -214,7 +214,7 @@ async function loadResources() {
         map[page].thumbnail = toEntry(item)
       } else {
         // 其余为页内插入的图片
-        map[page].originals.push(toEntry(item)
+        map[page].originals.push(toEntry(item))
       }
     }
     pageMap.value = map
