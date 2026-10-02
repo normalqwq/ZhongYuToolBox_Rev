@@ -49,6 +49,13 @@
         </el-header>
 
         <el-main class="content" :class="{ flush: hideHeader }" ref="mainRef">
+          <!-- 访问说明条：委婉提醒本站仅向名单内的同学开放（二级全屏页面不显示） -->
+          <div v-if="!hideHeader" class="access-notice">
+            <span class="notice-icon">🌱</span>
+            <span class="notice-text">
+              小提示：本站是和指定同学分享的小工具箱，仅向名单内的同学开放，链接就不要外传啦～
+            </span>
+          </div>
           <router-view v-slot="{ Component, route }">
             <transition name="fade" mode="out-in">
               <keep-alive v-if="route.meta.keepAlive">
@@ -259,10 +266,36 @@ function onOpenDrawer() {
 .content.flush {
   padding: 0;
 }
+/* ===== 访问说明条（暖色、委婉、不吓人） ===== */
+.access-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #fff7ed 0%, #fefce8 100%);
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.access-notice .notice-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.access-notice .notice-text {
+  flex: 1;
+}
 /* 移动端非二级页面收紧左右内边距，避免列表等页面两侧空隙过大 */
 @media (max-width: 767px) {
   .content:not(.flush) {
     padding: 8px;
+  }
+  .access-notice {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
   }
 }
 .back-top {
