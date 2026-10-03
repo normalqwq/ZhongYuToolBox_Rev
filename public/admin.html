@@ -46,6 +46,7 @@
     transition: transform .08s, opacity .15s, background .15s;
   }
   button:active { transform: scale(.97); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
   .btn-primary { background: #4f46e5; color: #fff; width: 100%; margin-top: 14px; }
   .btn-primary:hover { background: #4338ca; }
   .btn-add { background: #0ea5e9; color: #fff; white-space: nowrap; }
@@ -55,6 +56,16 @@
     border: 1px solid #fecaca;
   }
   .btn-del:hover { background: #fee2e2; }
+  .btn-batch-del {
+    background: #dc2626; color: #fff; padding: 7px 14px; font-size: 13px;
+  }
+  .btn-batch-del:hover { background: #b91c1c; }
+  .btn-page {
+    background: #fff; color: #475569; border: 1px solid #cbd5e1;
+    padding: 6px 12px; font-size: 13px; border-radius: 8px;
+  }
+  .btn-page:hover:not(:disabled) { background: #f1f5f9; }
+  .btn-page:disabled { opacity: .4; }
   .btn-ghost {
     background: transparent; color: #64748b; border: 1px solid #cbd5e1;
     padding: 7px 14px; font-size: 13px;
@@ -67,8 +78,26 @@
   .topbar h1 { margin: 0; }
   .add-row { display: flex; gap: 8px; margin: 16px 0 8px; }
   .add-row input { flex: 1; }
+  .toolbar {
+    display: flex; gap: 8px; align-items: center; margin: 14px 0 10px;
+  }
+  .toolbar input { flex: 1; padding: 9px 12px; font-size: 14px; }
   .count { font-size: 13px; color: #64748b; margin: 14px 0 8px; }
+  .batch-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px;
+    padding: 8px 12px; margin-bottom: 10px; font-size: 13px; color: #9a3412;
+  }
+  .batch-bar.hidden { display: none; }
   ul.list { list-style: none; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+  .list-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; background: #f1f5f9;
+    border: 1px solid #e2e8f0; border-radius: 12px 12px 0 0;
+    font-size: 13px; color: #475569; font-weight: 600;
+  }
+  .list-header input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  .list-header label { margin: 0; font-weight: 600; cursor: pointer; }
   ul.list li {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 14px; font-size: 15px; background: #fff;
@@ -77,7 +106,19 @@
     gap: 10px;
   }
   ul.list li:last-child { border-bottom: none; }
+  ul.list li input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; }
   ul.list li .uname { flex: 1; }
+  .pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 12px; gap: 8px; flex-wrap: wrap;
+  }
+  .page-info { font-size: 13px; color: #64748b; }
+  .page-ctrl { display: flex; align-items: center; gap: 6px; }
+  .page-size { display: flex; align-items: center; gap: 4px; font-size: 13px; color: #64748b; }
+  .page-size select {
+    padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 13px; background: #fff; color: #475569; cursor: pointer;
+  }
   .empty {
     text-align: center; color: #94a3b8; font-size: 14px;
     padding: 26px 10px; border: 1px dashed #cbd5e1; border-radius: 12px;
@@ -121,8 +162,40 @@
         <button class="btn-add" id="addBtn">添加</button>
       </div>
 
+      <div class="toolbar">
+        <input id="searchInput" type="text" placeholder="🔍 搜索用户名…" />
+      </div>
+
       <div class="count" id="countLine"></div>
+
+      <div class="batch-bar hidden" id="batchBar">
+        <span id="batchInfo">已选 0 个</span>
+        <div>
+          <button class="btn-ghost" id="clearSelBtn" style="margin-right:8px">取消选择</button>
+          <button class="btn-batch-del" id="batchDelBtn">删除选中</button>
+        </div>
+      </div>
+
       <div id="listBox"></div>
+
+      <div class="pagination">
+        <div class="page-size">
+          每页
+          <select id="pageSizeSelect">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          条
+        </div>
+        <div class="page-info" id="pageInfo"></div>
+        <div class="page-ctrl">
+          <button class="btn-page" id="prevBtn">上一页</button>
+          <button class="btn-page" id="nextBtn">下一页</button>
+        </div>
+      </div>
+
       <div class="msg" id="panelMsg"></div>
 
       <div class="tip">
@@ -138,6 +211,15 @@
 const $ = (id) => document.getElementById(id)
 const loginBox = $('loginBox'), panelBox = $('panelBox')
 const loginMsg = $('loginMsg'), panelMsg = $('panelMsg')
+
+// ---------- 前端状态 ----------
+const state = {
+  allUsers: [],
+  search: '',
+  page: 1,
+  pageSize: 20,
+  selected: new Set()
+}
 
 async function api(path, options = {}) {
   const resp = await fetch(path, {
@@ -173,7 +255,124 @@ async function doLogin() {
 $('loginBtn').addEventListener('click', doLogin)
 $('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin() })
 
-// ---------- 名单 ----------
+// ---------- 名单（带搜索 / 翻页 / 多选） ----------
+function getFiltered() {
+  const q = state.search.trim().toLowerCase()
+  if (!q) return state.allUsers
+  return state.allUsers.filter((u) => u.toLowerCase().includes(q))
+}
+
+function getTotalPages() {
+  return Math.max(1, Math.ceil(getFiltered().length / state.pageSize))
+}
+
+function getPaged() {
+  const filtered = getFiltered()
+  const total = getTotalPages()
+  if (state.page > total) state.page = total
+  if (state.page < 1) state.page = 1
+  const start = (state.page - 1) * state.pageSize
+  return filtered.slice(start, start + state.pageSize)
+}
+
+function renderUsers() {
+  const filtered = getFiltered()
+  const paged = getPaged()
+  const total = filtered.length
+  const totalPages = getTotalPages()
+
+  const countText = '当前共 ' + state.allUsers.length + ' 个授权用户名' +
+    (state.search ? '（匹配 ' + total + ' 个）' : '')
+  $('countLine').textContent = countText
+
+  const box = $('listBox')
+  box.innerHTML = ''
+
+  if (!total) {
+    box.innerHTML = '<div class="empty">' +
+      (state.search ? '没有找到匹配的用户名' : '名单还是空的～先把你自己的用户名加进去吧') +
+      '</div>'
+    renderPagination(totalPages)
+    updateBatchBar()
+    return
+  }
+
+  // 列表头：全选（本页）
+  const header = document.createElement('div')
+  header.className = 'list-header'
+  const selectAllCb = document.createElement('input')
+  selectAllCb.type = 'checkbox'
+  selectAllCb.id = 'selectAll'
+  const allOnPageSelected = paged.length > 0 && paged.every((u) => state.selected.has(u))
+  const someOnPageSelected = paged.some((u) => state.selected.has(u))
+  selectAllCb.checked = allOnPageSelected
+  selectAllCb.indeterminate = !allOnPageSelected && someOnPageSelected
+  selectAllCb.addEventListener('change', () => {
+    if (selectAllCb.checked) {
+      paged.forEach((u) => state.selected.add(u))
+    } else {
+      paged.forEach((u) => state.selected.delete(u))
+    }
+    renderUsers()
+  })
+  const saLabel = document.createElement('label')
+  saLabel.htmlFor = 'selectAll'
+  saLabel.textContent = '全选（本页）'
+  header.appendChild(selectAllCb)
+  header.appendChild(saLabel)
+  box.appendChild(header)
+
+  const ul = document.createElement('ul')
+  ul.className = 'list'
+  paged.forEach((name) => {
+    const li = document.createElement('li')
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.checked = state.selected.has(name)
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.selected.add(name)
+      else state.selected.delete(name)
+      renderUsers()
+    })
+    const span = document.createElement('span')
+    span.className = 'uname'
+    span.textContent = name
+    const btn = document.createElement('button')
+    btn.className = 'btn-del'
+    btn.textContent = '删除'
+    btn.addEventListener('click', () => removeUser(name))
+    li.appendChild(cb)
+    li.appendChild(span)
+    li.appendChild(btn)
+    ul.appendChild(li)
+  })
+  box.appendChild(ul)
+
+  renderPagination(totalPages)
+  updateBatchBar()
+}
+
+function renderPagination(totalPages) {
+  const filtered = getFiltered()
+  const total = filtered.length
+  $('pageInfo').textContent = total
+    ? '第 ' + state.page + ' / ' + totalPages + ' 页（共 ' + total + ' 条）'
+    : ''
+  $('prevBtn').disabled = state.page <= 1
+  $('nextBtn').disabled = state.page >= totalPages
+}
+
+function updateBatchBar() {
+  const n = state.selected.size
+  const bar = $('batchBar')
+  if (n > 0) {
+    bar.classList.remove('hidden')
+    $('batchInfo').textContent = '已选 ' + n + ' 个用户名'
+  } else {
+    bar.classList.add('hidden')
+  }
+}
+
 async function loadUsers() {
   const r = await api('/admin-api/users')
   if (!r.ok) {
@@ -186,33 +385,8 @@ async function loadUsers() {
     }
     return
   }
-  renderUsers(r.data.users || [])
-}
-
-function renderUsers(users) {
-  $('countLine').textContent = '当前共 ' + users.length + ' 个授权用户名'
-  const box = $('listBox')
-  if (!users.length) {
-    box.innerHTML = '<div class="empty">名单还是空的～先把你自己的用户名加进去吧</div>'
-    return
-  }
-  const ul = document.createElement('ul')
-  ul.className = 'list'
-  users.forEach((name) => {
-    const li = document.createElement('li')
-    const span = document.createElement('span')
-    span.className = 'uname'
-    span.textContent = name
-    const btn = document.createElement('button')
-    btn.className = 'btn-del'
-    btn.textContent = '删除'
-    btn.addEventListener('click', () => removeUser(name))
-    li.appendChild(span)
-    li.appendChild(btn)
-    ul.appendChild(li)
-  })
-  box.innerHTML = ''
-  box.appendChild(ul)
+  state.allUsers = r.data.users || []
+  renderUsers()
 }
 
 async function addUser() {
@@ -224,7 +398,9 @@ async function addUser() {
   $('addBtn').disabled = false
   if (r.ok) {
     input.value = ''
-    renderUsers(r.data.users || [])
+    state.allUsers = r.data.users || []
+    state.page = 1
+    renderUsers()
     flash(panelMsg, '已添加：' + name, 'ok')
   } else {
     flash(panelMsg, r.data.message || '添加失败', 'err')
@@ -237,12 +413,57 @@ async function removeUser(name) {
   if (!confirm('确定把「' + name + '」从名单中删除吗？\n删除后该用户会立即失去访问权限。')) return
   const r = await api('/admin-api/users', { method: 'DELETE', body: JSON.stringify({ name }) })
   if (r.ok) {
-    renderUsers(r.data.users || [])
+    state.allUsers = r.data.users || []
+    state.selected.delete(name)
+    renderUsers()
     flash(panelMsg, '已删除：' + name, 'ok')
   } else {
     flash(panelMsg, r.data.message || '删除失败', 'err')
   }
 }
+
+async function removeSelected() {
+  const names = [...state.selected]
+  if (!names.length) return
+  if (!confirm('确定删除选中的 ' + names.length + ' 个用户名吗？\n删除后这些用户会立即失去访问权限。')) return
+  $('batchDelBtn').disabled = true
+  const r = await api('/admin-api/users', { method: 'DELETE', body: JSON.stringify({ names }) })
+  $('batchDelBtn').disabled = false
+  if (r.ok) {
+    state.allUsers = r.data.users || []
+    state.selected.clear()
+    renderUsers()
+    flash(panelMsg, '已删除 ' + names.length + ' 个用户名', 'ok')
+  } else {
+    flash(panelMsg, r.data.message || '批量删除失败', 'err')
+  }
+}
+
+// ---------- 搜索 / 翻页 事件 ----------
+$('searchInput').addEventListener('input', (e) => {
+  state.search = e.target.value
+  state.page = 1
+  renderUsers()
+})
+
+$('pageSizeSelect').addEventListener('change', (e) => {
+  state.pageSize = parseInt(e.target.value, 10) || 20
+  state.page = 1
+  renderUsers()
+})
+
+$('prevBtn').addEventListener('click', () => {
+  if (state.page > 1) { state.page--; renderUsers() }
+})
+$('nextBtn').addEventListener('click', () => {
+  if (state.page < getTotalPages()) { state.page++; renderUsers() }
+})
+
+$('clearSelBtn').addEventListener('click', () => {
+  state.selected.clear()
+  renderUsers()
+})
+$('batchDelBtn').addEventListener('click', removeSelected)
 
 // ---------- 退出 ----------
 $('logoutBtn').addEventListener('click', async () => {
