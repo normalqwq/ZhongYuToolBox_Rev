@@ -5,7 +5,7 @@
 //   POST   /admin-api/logout                 退出登录
 //   GET    /admin-api/users                  获取白名单
 //   POST   /admin-api/users   { name }       添加用户名
-//   DELETE /admin-api/users   { name }       删除用户名
+//   DELETE /admin-api/users   { name } 或 { names: [] }  删除单个或批量用户名
 // ============================================================
 import {
   getWhitelist,
@@ -115,15 +115,25 @@ export async function onRequest(context) {
     return json({ ok: true, users: next })
   }
 
-  // ---------- 删除用户名 ----------
+  // ---------- 删除用户名（支持单个或批量） ----------
   if (path === '/users' && request.method === 'DELETE') {
-    const { name } = await readJsonBody(request)
-    const userName = String(name || '').trim()
+    const body = await readJsonBody(request)
     const list = await getWhitelist(env)
-    if (!list.includes(userName)) {
-      return json({ ok: false, message: '名单里没有这个用户名' }, 404)
+    let toRemove = []
+    if (body && Array.isArray(body.names)) {
+      toRemove = body.names.map((s) => String(s || '').trim()).filter(Boolean)
+    } else if (body && body.name) {
+      toRemove = [String(body.name).trim()]
     }
-    const next = await setWhitelist(env, list.filter((u) => u !== userName))
+    if (!toRemove.length) {
+      return json({ ok: false, message: '请指定要删除的用户名' }, 400)
+    }
+    const removeSet = new Set(toRemove)
+    const exists = toRemove.filter((n) => list.includes(n))
+    if (!exists.length) {
+      return json({ ok: false, message: '名单里没有这些用户名' }, 404)
+    }
+    const next = await setWhitelist(env, list.filter((u) => !removeSet.has(u)))
     return json({ ok: true, users: next })
   }
 
