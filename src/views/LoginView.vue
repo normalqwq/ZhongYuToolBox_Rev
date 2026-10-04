@@ -38,8 +38,7 @@
 
         <el-alert type="info" :closable="false" class="mt">
           <template #title>说明</template>
-          本工具用于快捷查看中育账号资源，与中育智慧（无锡）数字技术有限公司及其关联公司无关。
-          开发：Loshop。如遇问题请及时联系，QQ群：1067807011
+          本工具用于快捷查看中育账号资源，与中育智慧（无锡）数字技术有限公司及其关联公司无关。 开发：Loshop。 运营：Kael，如有问题请联系Email：kaelqi2008@gmail.com
         </el-alert>
       </div>
 
@@ -52,8 +51,7 @@
 
         <el-alert type="info" :closable="false" class="mt">
           <template #title>说明</template>
-          本工具用于快捷查看中育账号资源，与中育智慧（无锡）数字技术有限公司及其关联公司无关。
-          开发：Loshop。如遇问题请及时联系，QQ群：1067807011
+          本工具用于快捷查看中育账号资源，与中育智慧（无锡）数字技术有限公司及其关联公司无关。 开发：Loshop。 运营：Kael，如有问题请联系Email：kaelqi2008@gmail.com
         </el-alert>
       </div>
     </el-card>
