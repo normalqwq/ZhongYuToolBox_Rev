@@ -129,6 +129,45 @@
     background: #f8fafc; border-radius: 10px; padding: 10px 12px;
   }
   .hidden { display: none; }
+  .tab-bar { display: flex; gap: 0; margin: 14px 0 4px; border-bottom: 2px solid #e2e8f0; }
+  .tab-btn {
+    background: transparent; border: none; padding: 8px 16px; font-size: 14px;
+    color: #64748b; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px;
+    font-weight: 600; border-radius: 0;
+  }
+  .tab-btn:hover { color: #4f46e5; }
+  .tab-btn.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+  .log-header { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 8px; }
+  ul.log-list { list-style: none; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+  ul.log-list li {
+    padding: 10px 14px; font-size: 13px; background: #fff;
+    border-bottom: 1px solid #f1f5f9; line-height: 1.6;
+  }
+  ul.log-list li:last-child { border-bottom: none; }
+  .log-time { color: #94a3b8; font-size: 12px; margin-right: 8px; }
+  .log-action { font-weight: 600; margin-right: 6px; }
+  .log-action.add { color: #059669; }
+  .log-action.remove, .log-action.batch_remove { color: #dc2626; }
+  .log-action.import { color: #0ea5e9; }
+  .log-names { color: #475569; word-break: break-all; }
+  .log-meta { color: #64748b; font-size: 12px; }
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5);
+    display: flex; align-items: center; justify-content: center; z-index: 999;
+  }
+  .modal {
+    background: #fff; border-radius: 16px; width: 90%; max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.2); overflow: hidden;
+  }
+  .modal-title { padding: 16px 20px; font-size: 16px; font-weight: 700; border-bottom: 1px solid #f1f5f9; }
+  .modal-body { padding: 16px 20px; }
+  .modal-tip { font-size: 12px; color: #64748b; margin-bottom: 10px; line-height: 1.6; }
+  .modal-body textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 10px;
+    font-size: 14px; font-family: inherit; resize: vertical; outline: none;
+  }
+  .modal-body textarea:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
+  .modal-footer { padding: 12px 20px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 8px; }
 </style>
 </head>
 <body>
@@ -164,8 +203,16 @@
 
       <div class="toolbar">
         <input id="searchInput" type="text" placeholder="🔍 搜索用户名…" />
+        <button class="btn-ghost" id="importBtn">📥 导入</button>
+        <button class="btn-ghost" id="exportBtn">📤 导出</button>
       </div>
 
+      <div class="tab-bar">
+        <button class="tab-btn active" id="tabList">名单管理</button>
+        <button class="tab-btn" id="tabLog">操作日志</button>
+      </div>
+
+      <div id="listView">
       <div class="count" id="countLine"></div>
 
       <div class="batch-bar hidden" id="batchBar">
@@ -195,6 +242,15 @@
           <button class="btn-page" id="nextBtn">下一页</button>
         </div>
       </div>
+      </div>
+
+      <div id="logView" class="hidden">
+        <div class="log-header">
+          <span class="count" id="logCountLine"></span>
+          <button class="btn-ghost" id="refreshLogBtn">刷新</button>
+        </div>
+        <div id="logBox"></div>
+      </div>
 
       <div class="msg" id="panelMsg"></div>
 
@@ -204,6 +260,22 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- 批量导入弹窗 -->
+<div id="importModal" class="modal-mask hidden">
+  <div class="modal">
+    <div class="modal-title">批量导入用户名</div>
+    <div class="modal-body">
+      <p class="modal-tip">每行一个用户名，也支持用逗号、空格、分号分隔。已存在的会自动跳过。</p>
+      <textarea id="importText" rows="10" placeholder="user1&#10;user2&#10;user3"></textarea>
+      <div class="msg" id="importMsg"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" id="importCancelBtn">取消</button>
+      <button class="btn-add" id="importConfirmBtn">开始导入</button>
+    </div>
   </div>
 </div>
 
@@ -238,9 +310,11 @@ function flash(el, text, type) {
 }
 
 // ---------- 登录 ----------
+let loginLockTimer = null
 async function doLogin() {
   const password = $('pw').value
   if (!password) return flash(loginMsg, '请输入密码', 'err')
+  if ($('loginBtn').disabled) return
   $('loginBtn').disabled = true
   const r = await api('/admin-api/login', { method: 'POST', body: JSON.stringify({ password }) })
   $('loginBtn').disabled = false
@@ -249,8 +323,32 @@ async function doLogin() {
     panelBox.classList.remove('hidden')
     loadUsers()
   } else {
-    flash(loginMsg, r.data.message || '登录失败', 'err')
+    const msg = r.data.message || '登录失败'
+    flash(loginMsg, msg, 'err')
+    // 若被锁定，按返回的剩余秒数禁用登录按钮并倒计时
+    if (r.data.locked && r.data.retryAfter) {
+      startLoginLockdown(r.data.retryAfter)
+    }
   }
+}
+function startLoginLockdown(seconds) {
+  const btn = $('loginBtn')
+  const original = btn.textContent
+  let remain = seconds
+  btn.disabled = true
+  const tick = () => {
+    btn.textContent = `锁定中 ${remain}s`
+    if (remain <= 0) {
+      btn.disabled = false
+      btn.textContent = original
+      clearInterval(loginLockTimer)
+      loginLockTimer = null
+      return
+    }
+    remain--
+  }
+  tick()
+  loginLockTimer = setInterval(tick, 1000)
 }
 $('loginBtn').addEventListener('click', doLogin)
 $('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin() })
@@ -464,6 +562,126 @@ $('clearSelBtn').addEventListener('click', () => {
   renderUsers()
 })
 $('batchDelBtn').addEventListener('click', removeSelected)
+
+// ---------- 标签切换 ----------
+function switchTab(tab) {
+  const listActive = tab === 'list'
+  $('tabList').classList.toggle('active', listActive)
+  $('tabLog').classList.toggle('active', !listActive)
+  $('listView').classList.toggle('hidden', !listActive)
+  $('logView').classList.toggle('hidden', listActive)
+  if (!listActive) loadAuditLog()
+}
+$('tabList').addEventListener('click', () => switchTab('list'))
+$('tabLog').addEventListener('click', () => switchTab('log'))
+
+// ---------- 批量导入 ----------
+const importModal = $('importModal')
+function openImportModal() {
+  $('importText').value = ''
+  flash($('importMsg'), '', '')
+  importModal.classList.remove('hidden')
+  setTimeout(() => $('importText').focus(), 50)
+}
+function closeImportModal() { importModal.classList.add('hidden') }
+$('importBtn').addEventListener('click', openImportModal)
+$('importCancelBtn').addEventListener('click', closeImportModal)
+importModal.addEventListener('click', (e) => { if (e.target === importModal) closeImportModal() })
+
+$('importConfirmBtn').addEventListener('click', async () => {
+  const text = $('importText').value.trim()
+  if (!text) return flash($('importMsg'), '请输入用户名', 'err')
+  $('importConfirmBtn').disabled = true
+  const r = await api('/admin-api/users/import', { method: 'POST', body: JSON.stringify({ text }) })
+  $('importConfirmBtn').disabled = false
+  if (r.ok) {
+    state.allUsers = r.data.users || []
+    state.selected.clear()
+    state.page = 1
+    renderUsers()
+    flash($('importMsg'), `导入成功：新增 ${r.data.added} 个，跳过 ${r.data.skipped} 个已存在`, 'ok')
+    setTimeout(closeImportModal, 1200)
+  } else {
+    flash($('importMsg'), r.data.message || '导入失败', 'err')
+  }
+})
+
+// ---------- 导出 ----------
+$('exportBtn').addEventListener('click', async () => {
+  const r = await api('/admin-api/users/export')
+  if (!r.ok) return flash(panelMsg, r.data.message || '导出失败', 'err')
+  const users = r.data.users || []
+  const content = users.join('\n')
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `whitelist_${new Date().toISOString().slice(0, 10)}.txt`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  flash(panelMsg, `已导出 ${users.length} 个用户名`, 'ok')
+})
+
+// ---------- 审计日志 ----------
+const ACTION_LABELS = { add: '添加', remove: '删除', batch_remove: '批量删除', import: '批量导入' }
+function formatTime(ts) {
+  try {
+    const d = new Date(ts)
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  } catch { return String(ts) }
+}
+async function loadAuditLog() {
+  const box = $('logBox')
+  box.innerHTML = '<div class="empty">加载中…</div>'
+  const r = await api('/admin-api/audit-log')
+  if (!r.ok) {
+    box.innerHTML = '<div class="empty">加载日志失败</div>'
+    return
+  }
+  const logs = r.data.logs || []
+  $('logCountLine').textContent = `共 ${logs.length} 条操作记录（最多保留 200 条）`
+  if (!logs.length) {
+    box.innerHTML = '<div class="empty">暂无操作记录</div>'
+    return
+  }
+  const ul = document.createElement('ul')
+  ul.className = 'log-list'
+  logs.forEach((entry) => {
+    const li = document.createElement('li')
+    const time = document.createElement('span')
+    time.className = 'log-time'
+    time.textContent = formatTime(entry.t)
+    const action = document.createElement('span')
+    action.className = 'log-action ' + (entry.action || '')
+    action.textContent = ACTION_LABELS[entry.action] || entry.action || '操作'
+    li.appendChild(time)
+    li.appendChild(action)
+    if (entry.action === 'import') {
+      const meta = document.createElement('span')
+      meta.className = 'log-meta'
+      meta.textContent = `新增 ${entry.added || 0} 个，跳过 ${entry.skipped || 0} 个`
+      li.appendChild(meta)
+      if (entry.names && entry.names.length) {
+        const names = document.createElement('div')
+        names.className = 'log-names'
+        names.textContent = entry.names.join('、')
+        li.appendChild(names)
+      }
+    } else {
+      const names = document.createElement('span')
+      names.className = 'log-names'
+      names.textContent = (entry.names || []).join('、')
+      li.appendChild(names)
+    }
+    ul.appendChild(li)
+  })
+  box.innerHTML = ''
+  box.appendChild(ul)
+}
+$('refreshLogBtn').addEventListener('click', loadAuditLog)
 
 // ---------- 退出 ----------
 $('logoutBtn').addEventListener('click', async () => {

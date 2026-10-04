@@ -1,11 +1,14 @@
 // ============================================================
 // 管理后台接口（路由前缀 /admin-api）
-//   POST   /admin-api/login   { password }   管理员登录
-//   GET    /admin-api/me                     检查管理员登录态
-//   POST   /admin-api/logout                 退出登录
-//   GET    /admin-api/users                  获取白名单
-//   POST   /admin-api/users   { name }       添加用户名
+//   POST   /admin-api/login   { password }           管理员登录（带防爆破）
+//   GET    /admin-api/me                              检查管理员登录态
+//   POST   /admin-api/logout                          退出登录
+//   GET    /admin-api/users                           获取白名单
+//   POST   /admin-api/users   { name }                添加用户名
 //   DELETE /admin-api/users   { name } 或 { names: [] }  删除单个或批量用户名
+//   POST   /admin-api/users/import  { text } 或 { names: [] }  批量导入
+//   GET    /admin-api/users/export                     导出白名单（JSON）
+//   GET    /admin-api/audit-log                        查看操作审计日志
 // ============================================================
 import {
   getWhitelist,
@@ -18,6 +21,12 @@ import {
   ADMIN_COOKIE,
   SESSION_MAX_AGE
 } from '../_auth.js'
+
+const AUDIT_LOG_KEY = 'whitelist_audit_log'
+const AUDIT_LOG_MAX = 200
+const LOGIN_FAIL_KEY_PREFIX = 'admin_fail:'
+const MAX_FAIL_ATTEMPTS = 5
+const LOCK_DURATION_MS = 15 * 60 * 1000 // 15 分钟
 
 function json(obj, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(obj), {
@@ -33,6 +42,60 @@ function passwordOk(input, expected) {
   let diff = 0
   for (let i = 0; i < input.length; i++) diff |= input.charCodeAt(i) ^ expected.charCodeAt(i)
   return diff === 0
+}
+
+/** 取客户端真实 IP（Cloudflare 环境优先用 CF-Connecting-IP） */
+function getClientIp(request) {
+  return (
+    request.headers.get('CF-Connecting-IP') ||
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown'
+  )
+}
+
+/** 读取登录失败计数 */
+async function getLoginFail(env, ip) {
+  try {
+    const raw = await env.AUTH_KV.get(LOGIN_FAIL_KEY_PREFIX + ip)
+    if (!raw) return { count: 0, lockedUntil: 0 }
+    const obj = JSON.parse(raw)
+    if (obj && typeof obj.count === 'number') return obj
+    return { count: 0, lockedUntil: 0 }
+  } catch {
+    return { count: 0, lockedUntil: 0 }
+  }
+}
+
+/** 写入登录失败计数 */
+async function setLoginFail(env, ip, data) {
+  try {
+    await env.AUTH_KV.put(LOGIN_FAIL_KEY_PREFIX + ip, JSON.stringify(data), {
+      expirationTtl: Math.ceil(LOCK_DURATION_MS / 1000) + 60
+    })
+  } catch {}
+}
+
+/** 清除登录失败计数（登录成功时调用） */
+async function clearLoginFail(env, ip) {
+  try {
+    await env.AUTH_KV.delete(LOGIN_FAIL_KEY_PREFIX + ip)
+  } catch {}
+}
+
+/** 追加一条审计日志 */
+async function pushAuditLog(env, entry) {
+  try {
+    const raw = await env.AUTH_KV.get(AUDIT_LOG_KEY)
+    let list = []
+    if (raw) {
+      try { list = JSON.parse(raw) } catch { list = [] }
+      if (!Array.isArray(list)) list = []
+    }
+    list.unshift({ t: Date.now(), ...entry })
+    if (list.length > AUDIT_LOG_MAX) list.length = AUDIT_LOG_MAX
+    await env.AUTH_KV.put(AUDIT_LOG_KEY, JSON.stringify(list))
+  } catch {}
 }
 
 /** 校验管理员 Cookie，失败返回 null */
@@ -54,18 +117,43 @@ export async function onRequest(context) {
   const url = new URL(request.url)
   const path = url.pathname.replace(/^\/admin-api/, '') || '/'
 
-  // ---------- 管理员登录 ----------
+  // ---------- 管理员登录（带防爆破） ----------
   if (path === '/login' && request.method === 'POST') {
-    if (!env.ADMIN_PASSWORD || !env.AUTH_SECRET) {
+    if (!env.ADMIN_PASSWORD || !env.AUTH_SECRET || !env.AUTH_KV) {
       return json(
-        { ok: false, message: '后台尚未配置 ADMIN_PASSWORD / AUTH_SECRET，请先在 Cloudflare 中设置' },
+        { ok: false, message: '后台尚未配置 ADMIN_PASSWORD / AUTH_SECRET / AUTH_KV，请先在 Cloudflare 中设置' },
         500
       )
     }
+    const ip = getClientIp(request)
+    const fail = await getLoginFail(env, ip)
+
+    // 处于锁定期
+    if (fail.lockedUntil && fail.lockedUntil > Date.now()) {
+      const remain = Math.ceil((fail.lockedUntil - Date.now()) / 1000)
+      return json(
+        { ok: false, message: `登录失败次数过多，请 ${remain} 秒后再试`, locked: true, retryAfter: remain },
+        429
+      )
+    }
+
     const { password } = await readJsonBody(request)
     if (!passwordOk(String(password || ''), env.ADMIN_PASSWORD)) {
-      return json({ ok: false, message: '管理员密码不正确' }, 401)
+      const nextCount = fail.count + 1
+      const willLock = nextCount >= MAX_FAIL_ATTEMPTS
+      const entry = {
+        count: nextCount,
+        lockedUntil: willLock ? Date.now() + LOCK_DURATION_MS : 0
+      }
+      await setLoginFail(env, ip, entry)
+      const msg = willLock
+        ? `密码错误次数过多，已锁定 ${Math.round(LOCK_DURATION_MS / 60000)} 分钟`
+        : `管理员密码不正确（还剩 ${MAX_FAIL_ATTEMPTS - nextCount} 次机会）`
+      return json({ ok: false, message: msg, locked: willLock }, 401)
     }
+
+    // 登录成功：清除失败计数
+    await clearLoginFail(env, ip)
     const token = await signToken(
       { r: 'admin', e: Date.now() / 1000 + SESSION_MAX_AGE },
       env.AUTH_SECRET
@@ -101,6 +189,12 @@ export async function onRequest(context) {
     return json({ ok: true, users: await getWhitelist(env) })
   }
 
+  // ---------- 导出白名单 ----------
+  if (path === '/users/export' && request.method === 'GET') {
+    const users = await getWhitelist(env)
+    return json({ ok: true, users, count: users.length })
+  }
+
   // ---------- 添加用户名 ----------
   if (path === '/users' && request.method === 'POST') {
     const { name } = await readJsonBody(request)
@@ -112,7 +206,47 @@ export async function onRequest(context) {
       return json({ ok: false, message: '这个用户名已经在名单里了' }, 409)
     }
     const next = await setWhitelist(env, [...list, userName])
+    await pushAuditLog(env, { action: 'add', names: [userName] })
     return json({ ok: true, users: next })
+  }
+
+  // ---------- 批量导入用户名 ----------
+  if (path === '/users/import' && request.method === 'POST') {
+    const body = await readJsonBody(request)
+    let inputNames = []
+    if (body && Array.isArray(body.names)) {
+      inputNames = body.names
+    } else if (body && typeof body.text === 'string') {
+      inputNames = body.text.split(/[\r\n,，;；\s]+/)
+    }
+    const cleaned = [...new Set(
+      inputNames.map((s) => String(s || '').trim()).filter(Boolean)
+    )]
+    if (!cleaned.length) {
+      return json({ ok: false, message: '没有检测到有效的用户名' }, 400)
+    }
+    const tooLong = cleaned.filter((n) => n.length > 64)
+    if (tooLong.length) {
+      return json({ ok: false, message: `有 ${tooLong.length} 个用户名超过 64 字符，请检查` }, 400)
+    }
+    const list = await getWhitelist(env)
+    const existing = new Set(list)
+    const toAdd = cleaned.filter((n) => !existing.has(n))
+    const skipped = cleaned.length - toAdd.length
+    const next = toAdd.length ? await setWhitelist(env, [...list, ...toAdd]) : list
+    await pushAuditLog(env, {
+      action: 'import',
+      names: toAdd,
+      added: toAdd.length,
+      skipped
+    })
+    return json({
+      ok: true,
+      users: next,
+      added: toAdd.length,
+      skipped,
+      total: next.length
+    })
   }
 
   // ---------- 删除用户名（支持单个或批量） ----------
@@ -134,7 +268,22 @@ export async function onRequest(context) {
       return json({ ok: false, message: '名单里没有这些用户名' }, 404)
     }
     const next = await setWhitelist(env, list.filter((u) => !removeSet.has(u)))
+    await pushAuditLog(env, {
+      action: toRemove.length > 1 ? 'batch_remove' : 'remove',
+      names: exists
+    })
     return json({ ok: true, users: next })
+  }
+
+  // ---------- 审计日志 ----------
+  if (path === '/audit-log' && request.method === 'GET') {
+    try {
+      const raw = await env.AUTH_KV.get(AUDIT_LOG_KEY)
+      const list = raw ? JSON.parse(raw) : []
+      return json({ ok: true, logs: Array.isArray(list) ? list : [] })
+    } catch {
+      return json({ ok: true, logs: [] })
+    }
   }
 
   return json({ ok: false, message: '未知的后台接口' }, 404)
