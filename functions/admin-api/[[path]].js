@@ -9,6 +9,7 @@
 //   POST   /admin-api/users/import  { text } 或 { names: [] }  批量导入
 //   GET    /admin-api/users/export                     导出白名单（JSON）
 //   GET    /admin-api/audit-log                        查看操作审计日志
+//   GET    /admin-api/login-log                        查看用户登录日志
 // ============================================================
 import {
   getWhitelist,
@@ -24,6 +25,7 @@ import {
 
 const AUDIT_LOG_KEY = 'whitelist_audit_log'
 const AUDIT_LOG_MAX = 200
+const LOGIN_LOG_KEY = 'user_login_log'
 const LOGIN_FAIL_KEY_PREFIX = 'admin_fail:'
 const MAX_FAIL_ATTEMPTS = 5
 const LOCK_DURATION_MS = 15 * 60 * 1000 // 15 分钟
@@ -279,6 +281,16 @@ export async function onRequest(context) {
   if (path === '/audit-log' && request.method === 'GET') {
     try {
       const raw = await env.AUTH_KV.get(AUDIT_LOG_KEY)
+      const list = raw ? JSON.parse(raw) : []
+      return json({ ok: true, logs: Array.isArray(list) ? list : [] })
+    } catch {
+      return json({ ok: true, logs: [] })
+    }
+  }
+
+  if (path === '/login-log' && request.method === 'GET') {
+    try {
+      const raw = await env.AUTH_KV.get(LOGIN_LOG_KEY)
       const list = raw ? JSON.parse(raw) : []
       return json({ ok: true, logs: Array.isArray(list) ? list : [] })
     } catch {

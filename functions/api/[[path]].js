@@ -18,6 +18,19 @@ function push(e) {
   } catch (err) {}
 }
 
+// ★ 用户登录日志：记录成功登录的用户名 + IP，存 KV，保留最近 500 条
+const LOGIN_LOG_KEY = 'user_login_log';
+async function pushLoginLog(env, userName, ip) {
+  if (!env || !env.AUTH_KV || !userName) return;
+  try {
+    const raw = await env.AUTH_KV.get(LOGIN_LOG_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    list.unshift({ t: Date.now(), u: userName, ip: ip || '' });
+    if (list.length > 500) list.length = 500;
+    await env.AUTH_KV.put(LOGIN_LOG_KEY, JSON.stringify(list));
+  } catch (err) {}
+}
+
 async function resolveUpstream(env) {
   if (env && env.UPSTREAM) return env.UPSTREAM;
   if (cache && Date.now() - cache.t < 3600000) return cache.v;
@@ -118,6 +131,7 @@ async function handleLoginResponse(resp, reqText, env, entry) {
   );
   h['set-cookie'] = sessionCookie(USER_COOKIE, token);
   entry.结果 = '登录成功，已下发访问凭证';
+  await pushLoginLog(env, userName, entry.IP || '');
   return new Response(text, { status: resp.status, headers: h });
 }
 
@@ -150,6 +164,7 @@ export async function onRequest(context) {
     时间: new Date().toISOString().slice(11, 19),
     路径: full,
     方法: request.method,
+    IP: request.headers.get('CF-Connecting-IP') || '',
     带Authorization: auth ? auth.slice(0, 32) + '…' : '没有',
   };
 
