@@ -17,7 +17,9 @@ import {
   Download,
   Setting,
   InfoFilled,
-  Crop
+  Crop,
+  Search,
+  Printer
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 
@@ -35,6 +37,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { index: '/column', title: '在线专栏', icon: Monitor },
   { index: '/course', title: '选课', icon: School },
   { index: '/mistake', title: '错题本', icon: Notebook },
+  { index: '/mistake-print', title: '错题打印', icon: Printer },
   { index: '/quora', title: '随身答', icon: ChatDotRound },
   { index: '/linspirer', title: '领创', icon: Present },
   { index: '/lesson', title: '优客畅学', icon: Reading },

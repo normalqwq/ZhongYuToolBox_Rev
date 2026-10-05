@@ -26,6 +26,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/picture', name: 'picture', component: () => import('@/views/PictureView.vue'), meta: { title: '图库', keepAlive: true } },
   { path: '/picture/detail', name: 'picture-detail', component: () => import('@/views/PictureDetailView.vue'), meta: { title: '图片详情', hideLayoutHeader: true, keepAlive: true } },
   { path: '/mistake', name: 'mistake', component: () => import('@/views/MistakeView.vue'), meta: { title: '错题本', keepAlive: true } },
+  { path: '/mistake-print', name: 'mistake-print', component: () => import('@/views/MistakePrintView.vue'), meta: { title: '错题打印工坊', keepAlive: true } },
   { path: '/mistake/:itemId', name: 'mistake-detail', component: () => import('@/views/MistakeDetailView.vue'), meta: { title: '错题详情', hideLayoutHeader: true, keepAlive: true } },
   { path: '/quora', name: 'quora', component: () => import('@/views/QuoraView.vue'), meta: { title: '随身答', keepAlive: true } },
   { path: '/quora/:sessionId', name: 'quora-detail', component: () => import('@/views/QuoraDetailView.vue'), meta: { title: '问题详情', hideLayoutHeader: true, keepAlive: true } },
