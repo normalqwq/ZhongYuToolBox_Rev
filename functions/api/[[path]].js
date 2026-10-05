@@ -171,6 +171,37 @@ export async function onRequest(context) {
   // 是否为登录请求（ABP 接口，上游路径仍为 /api/TokenAuth/Login）
   const isLogin = short === '/TokenAuth/Login';
 
+  // 维护模式：登录请求直接拦截，不转发到上游
+  if (isLogin && env.AUTH_KV) {
+    try {
+      const raw = await env.AUTH_KV.get('maintenance_mode');
+      if (raw) {
+        const cfg = JSON.parse(raw);
+        if (cfg) {
+          if (cfg.until && cfg.until > 0 && cfg.until < Date.now()) {
+            await env.AUTH_KV.delete('maintenance_mode');
+          } else {
+            entry.结果 = '维护模式拦截登录';
+            push(entry);
+            return new Response(JSON.stringify({
+              result: null,
+              success: false,
+              unAuthorizedRequest: false,
+              error: {
+                code: 9902,
+                message: cfg.message || '网站正在维护中，请稍后再来～',
+                details: null
+              }
+            }), {
+              status: 503,
+              headers: { 'content-type': 'application/json; charset=utf-8', ...cors() }
+            });
+          }
+        }
+      }
+    } catch {}
+  }
+
   // 上游实际路径：ABP 框架接口（/api/services、/api/TokenAuth 等）保持 full；
   // 非 ABP 的独立接口（Question/View、special/、CloudNotes/）上游不带 /api 前缀，需用 short
   const NON_ABP = /^\/(Question|special|CloudNotes|SelfStudy)(\/|$)/;

@@ -9,7 +9,6 @@
 //   POST   /admin-api/users/import  { text } 或 { names: [] }  批量导入
 //   GET    /admin-api/users/export                     导出白名单（JSON）
 //   GET    /admin-api/audit-log                        查看操作审计日志
-//   GET    /admin-api/login-log                        查看用户登录日志
 // ============================================================
 import {
   getWhitelist,
@@ -25,10 +24,10 @@ import {
 
 const AUDIT_LOG_KEY = 'whitelist_audit_log'
 const AUDIT_LOG_MAX = 200
-const LOGIN_LOG_KEY = 'user_login_log'
 const LOGIN_FAIL_KEY_PREFIX = 'admin_fail:'
 const MAX_FAIL_ATTEMPTS = 5
 const LOCK_DURATION_MS = 15 * 60 * 1000 // 15 分钟
+const MAINTENANCE_KEY = 'maintenance_mode'
 
 function json(obj, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(obj), {
@@ -288,14 +287,48 @@ export async function onRequest(context) {
     }
   }
 
-  if (path === '/login-log' && request.method === 'GET') {
+  // ---------- 维护模式：读取状态 ----------
+  if (path === '/maintenance' && request.method === 'GET') {
     try {
-      const raw = await env.AUTH_KV.get(LOGIN_LOG_KEY)
-      const list = raw ? JSON.parse(raw) : []
-      return json({ ok: true, logs: Array.isArray(list) ? list : [] })
+      const raw = await env.AUTH_KV.get(MAINTENANCE_KEY)
+      const cfg = raw ? JSON.parse(raw) : null
+      // 自动过期：定时维护到期后自动关闭
+      if (cfg && cfg.until && cfg.until > 0 && cfg.until < Date.now()) {
+        await env.AUTH_KV.delete(MAINTENANCE_KEY)
+        return json({ ok: true, maintenance: null })
+      }
+      return json({ ok: true, maintenance: cfg || null })
     } catch {
-      return json({ ok: true, logs: [] })
+      return json({ ok: true, maintenance: null })
     }
+  }
+
+  // ---------- 维护模式：开启 / 关闭 ----------
+  if (path === '/maintenance' && (request.method === 'POST' || request.method === 'PUT')) {
+    const body = await readJsonBody(request)
+    const enable = body.enable !== false
+    if (!enable) {
+      await env.AUTH_KV.delete(MAINTENANCE_KEY)
+      await pushAuditLog(env, { action: 'maintenance_off' })
+      return json({ ok: true, maintenance: null })
+    }
+    // 开启：可选 duration（分钟），到期自动关闭
+    let until = 0
+    const duration = Number(body.duration) || 0
+    if (duration > 0) until = Date.now() + duration * 60 * 1000
+    const cfg = {
+      message: String(body.message || '网站正在维护中，请稍后再来～').slice(0, 200),
+      until,
+      startedAt: Date.now(),
+      startedBy: 'admin'
+    }
+    await env.AUTH_KV.put(MAINTENANCE_KEY, JSON.stringify(cfg))
+    await pushAuditLog(env, {
+      action: 'maintenance_on',
+      names: [cfg.message],
+      added: duration || 0
+    })
+    return json({ ok: true, maintenance: cfg })
   }
 
   return json({ ok: false, message: '未知的后台接口' }, 404)
