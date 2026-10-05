@@ -5,12 +5,8 @@ const Placeholder = () => import('@/views/PlaceholderView.vue')
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
-  {
-    path: '/login',
-    name: 'login',
-    component: () => import('@/views/LoginView.vue'),
-    meta: { title: '用户中心' }
-  },
+  { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { title: '用户中心' } },
+  { path: '/search', name: 'search', component: () => import('@/views/GlobalSearchView.vue'), meta: { title: '全局搜索' } },
   {
     path: '/note',
     name: 'note',

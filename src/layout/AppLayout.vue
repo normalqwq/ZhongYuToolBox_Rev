@@ -28,7 +28,6 @@
         <div class="brand">
           <img src="/icon.png" class="brand-icon" alt="中育ToolBox" />
         </div>
-        <SidebarSearch :collapsed="collapsed" @expand="collapsed = false" @navigate="onSearchNavigate" />
         <SideMenu :collapse="collapsed" />
       </el-aside>
 
@@ -77,7 +76,6 @@
       size="72%"
       class="mobile-drawer"
     >
-      <SidebarSearch :collapsed="false" @navigate="onSearchNavigate" />
       <SideMenu :collapse="false" @select="drawer = false" />
     </el-drawer>
 
@@ -108,7 +106,6 @@ import {
   SwitchButton
 } from '@element-plus/icons-vue'
 import SideMenu from './SideMenu.vue'
-import SidebarSearch from './SidebarSearch.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useProxyStore } from '@/stores/proxy'
 import { startProxyPolling, stopProxyPolling, getProxyBaseUrl } from '@/utils/proxy'
@@ -131,12 +128,6 @@ const proxyLocal = computed(() => proxy.localEnabled)
 
 const mainRef = ref()
 const showBackTop = ref(false)
-
-/** 全局搜索结果点击跳转 */
-function onSearchNavigate(routeInfo: { name: string; params?: Record<string, any> }) {
-  router.push({ name: routeInfo.name, params: routeInfo.params })
-  drawer.value = false
-}
 
 function onScroll() {
   const el = document.querySelector('.content')
