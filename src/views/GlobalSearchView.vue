@@ -13,7 +13,7 @@
         @clear="onClear"
       >
         <template #append>
-          <el-button :icon="Search" @click="runSearch" />
+          <el-button :icon="Search" size="large" @click="runSearch" />
         </template>
       </el-input>
     </div>
@@ -171,10 +171,14 @@ onMounted(loadHistory)
 .search-header :deep(.el-input-group__append) {
   border-radius: 0 10px 10px 0;
   padding: 0;
+  display: flex;
+  align-items: stretch;
 }
 .search-header :deep(.el-input-group__append .el-button) {
   height: 100%;
   border: none;
+  border-radius: 0 10px 10px 0;
+  margin: 0;
 }
 
 /* 搜索历史 */
