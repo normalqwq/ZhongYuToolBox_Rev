@@ -17,8 +17,7 @@ import {
   Download,
   Setting,
   InfoFilled,
-  Crop,
-  Search
+  Crop
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 
@@ -30,7 +29,6 @@ export interface MenuItem {
 
 export const MENU_ITEMS: MenuItem[] = [
   { index: '/login', title: '用户中心', icon: User },
-  { index: '/search', title: '全局搜索', icon: Search },
   { index: '/picture', title: '图库', icon: Picture },
   { index: '/note', title: '云笔记', icon: Document },
   { index: '/exam', title: '新测评', icon: EditPen },

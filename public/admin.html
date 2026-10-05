@@ -168,29 +168,6 @@
   }
   .modal-body textarea:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
   .modal-footer { padding: 12px 20px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 8px; }
-  /* ===== 维护模式 ===== */
-  .maint-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 8px; }
-  .maint-status { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 10px; margin-bottom: 16px; font-size: 14px; }
-  .maint-status.on { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
-  .maint-status.off { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
-  .maint-status .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .maint-status.on .dot { background: #dc2626; animation: pulse 1.5s ease-in-out infinite; }
-  .maint-status.off .dot { background: #22c55e; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
-  .maint-form { display: flex; flex-direction: column; gap: 12px; }
-  .maint-form label { font-size: 13px; color: #475569; font-weight: 600; margin-bottom: 4px; }
-  .maint-form textarea { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; font-family: inherit; resize: vertical; outline: none; }
-  .maint-form textarea:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
-  .maint-duration { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .maint-duration input { width: 80px; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; }
-  .maint-duration select { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; background: #fff; }
-  .maint-actions { display: flex; gap: 8px; margin-top: 4px; }
-  .btn-maint-on { background: #dc2626; color: #fff; flex: 1; }
-  .btn-maint-on:hover { background: #b91c1c; }
-  .btn-maint-off { background: #22c55e; color: #fff; flex: 1; }
-  .btn-maint-off:hover { background: #16a34a; }
-  .maint-hint { font-size: 12px; color: #94a3b8; line-height: 1.7; margin-top: 10px; }
-  .maint-countdown { font-size: 13px; color: #dc2626; font-weight: 600; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -232,7 +209,6 @@
 
       <div class="tab-bar">
         <button class="tab-btn active" id="tabList">名单管理</button>
-        <button class="tab-btn" id="tabMaint">维护模式</button>
         <button class="tab-btn" id="tabLog">操作日志</button>
         <button class="tab-btn" id="tabLoginLog">登录日志</button>
       </div>
@@ -283,42 +259,6 @@
           <button class="btn-ghost" id="refreshLoginLogBtn">刷新</button>
         </div>
         <div id="loginLogBox"></div>
-      </div>
-
-      <div id="maintView" class="hidden">
-        <div class="maint-card">
-          <div class="maint-status off" id="maintStatus">
-            <span class="dot"></span>
-            <span id="maintStatusText">加载中…</span>
-          </div>
-          <div class="maint-form">
-            <div>
-              <label for="maintMsg">维护提示信息</label>
-              <textarea id="maintMsg" rows="2" placeholder="网站正在维护中，请稍后再来～"></textarea>
-            </div>
-            <div>
-              <label>定时维护（可选）</label>
-              <div class="maint-duration">
-                <input id="maintDuration" type="number" min="0" placeholder="30" />
-                <select id="maintUnit">
-                  <option value="minutes" selected>分钟</option>
-                  <option value="hours">小时</option>
-                </select>
-                <span style="font-size:12px;color:#94a3b8">填 0 或留空 = 手动关闭</span>
-              </div>
-            </div>
-            <div class="maint-actions">
-              <button class="btn-maint-on" id="maintOnBtn">开启维护</button>
-              <button class="btn-maint-off" id="maintOffBtn">关闭维护</button>
-            </div>
-            <div class="maint-countdown hidden" id="maintCountdown"></div>
-            <div class="maint-hint">
-              开启维护后，学生登录时会看到维护提示，无法登录。<br />
-              定时维护到期后自动恢复正常登录。<br />
-              已登录的学生不受影响（只是新登录被拦截）。
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="msg" id="panelMsg"></div>
@@ -636,22 +576,17 @@ $('batchDelBtn').addEventListener('click', removeSelected)
 function switchTab(tab) {
   const listActive = tab === 'list'
   const logActive = tab === 'log'
-  const maintActive = tab === 'maint'
   const loginActive = tab === 'login'
   $('tabList').classList.toggle('active', listActive)
-  $('tabMaint').classList.toggle('active', maintActive)
   $('tabLog').classList.toggle('active', logActive)
   $('tabLoginLog').classList.toggle('active', loginActive)
   $('listView').classList.toggle('hidden', !listActive)
-  $('maintView').classList.toggle('hidden', !maintActive)
   $('logView').classList.toggle('hidden', !logActive)
   $('loginLogView').classList.toggle('hidden', !loginActive)
   if (logActive) loadAuditLog()
-  if (maintActive) loadMaintenance()
   if (loginActive) loadLoginLog()
 }
 $('tabList').addEventListener('click', () => switchTab('list'))
-$('tabMaint').addEventListener('click', () => switchTab('maint'))
 $('tabLog').addEventListener('click', () => switchTab('log'))
 $('tabLoginLog').addEventListener('click', () => switchTab('login'))
 
@@ -667,6 +602,7 @@ function closeImportModal() { importModal.classList.add('hidden') }
 $('importBtn').addEventListener('click', openImportModal)
 $('importCancelBtn').addEventListener('click', closeImportModal)
 importModal.addEventListener('click', (e) => { if (e.target === importModal) closeImportModal() })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !importModal.classList.contains('hidden')) closeImportModal() })
 
 $('importConfirmBtn').addEventListener('click', async () => {
   const text = $('importText').value.trim()
@@ -705,7 +641,7 @@ $('exportBtn').addEventListener('click', async () => {
 })
 
 // ---------- 审计日志 ----------
-const ACTION_LABELS = { add: '添加', remove: '删除', batch_remove: '批量删除', import: '批量导入', maintenance_on: '开启维护', maintenance_off: '关闭维护' }
+const ACTION_LABELS = { add: '添加', remove: '删除', batch_remove: '批量删除', import: '批量导入' }
 function formatTime(ts) {
   try {
     const d = new Date(ts)
@@ -763,7 +699,6 @@ async function loadAuditLog() {
 }
 $('refreshLogBtn').addEventListener('click', loadAuditLog)
 
-// ---------- 登录日志 ----------
 async function loadLoginLog() {
   const box = $('loginLogBox')
   box.innerHTML = '<div class="empty">加载中…</div>'
@@ -773,7 +708,7 @@ async function loadLoginLog() {
     return
   }
   const logs = r.data.logs || []
-  $('loginLogCountLine').textContent = '共 ' + logs.length + ' 条登录记录（最多保留 500 条）'
+  $('loginLogCountLine').textContent = `共 ${logs.length} 条登录记录（最多保留 500 条）`
   if (!logs.length) {
     box.innerHTML = '<div class="empty">暂无登录记录</div>'
     return
@@ -807,87 +742,6 @@ async function loadLoginLog() {
   box.appendChild(ul)
 }
 $('refreshLoginLogBtn').addEventListener('click', loadLoginLog)
-
-// ---------- 维护模式 ----------
-let maintTimer = null
-async function loadMaintenance() {
-  const r = await api('/admin-api/maintenance')
-  if (!r.ok) return flash(panelMsg, r.data.message || '加载维护状态失败', 'err')
-  renderMaintenance(r.data.maintenance)
-}
-function renderMaintenance(cfg) {
-  const status = $('maintStatus')
-  const text = $('maintStatusText')
-  const countdown = $('maintCountdown')
-  const msgInput = $('maintMsg')
-  if (maintTimer) { clearInterval(maintTimer); maintTimer = null }
-
-  if (cfg) {
-    status.className = 'maint-status on'
-    msgInput.value = cfg.message || ''
-    if (cfg.until && cfg.until > 0) {
-      const update = () => {
-        const remain = cfg.until - Date.now()
-        if (remain <= 0) {
-          text.textContent = '维护已到期，正在自动关闭…'
-          clearInterval(maintTimer)
-          maintTimer = null
-          loadMaintenance()
-          return
-        }
-        const m = Math.floor(remain / 60000)
-        const s = Math.floor((remain % 60000) / 1000)
-        text.textContent = '维护中 · 剩余 ' + m + ' 分 ' + s + ' 秒'
-      }
-      update()
-      maintTimer = setInterval(update, 1000)
-      countdown.classList.remove('hidden')
-    } else {
-      text.textContent = '维护中 · 手动关闭'
-      countdown.classList.add('hidden')
-    }
-  } else {
-    status.className = 'maint-status off'
-    text.textContent = '网站正常运行中'
-    countdown.classList.add('hidden')
-  }
-}
-$('maintOnBtn').addEventListener('click', async () => {
-  const message = $('maintMsg').value.trim() || '网站正在维护中，请稍后再来～'
-  let duration = parseInt($('maintDuration').value, 10) || 0
-  const unit = $('maintUnit').value
-  if (unit === 'hours') duration *= 60
-  if (!confirm(duration > 0
-    ? '确定开启维护 ' + duration + ' 分钟吗？\n期间学生无法登录。'
-    : '确定开启维护吗？\n期间学生无法登录，需手动关闭。')) return
-  $('maintOnBtn').disabled = true
-  const r = await api('/admin-api/maintenance', {
-    method: 'POST',
-    body: JSON.stringify({ enable: true, message, duration })
-  })
-  $('maintOnBtn').disabled = false
-  if (r.ok) {
-    renderMaintenance(r.data.maintenance)
-    flash(panelMsg, '维护模式已开启', 'ok')
-  } else {
-    flash(panelMsg, r.data.message || '开启失败', 'err')
-  }
-})
-$('maintOffBtn').addEventListener('click', async () => {
-  if (!confirm('确定关闭维护模式吗？\n关闭后学生可以正常登录。')) return
-  $('maintOffBtn').disabled = true
-  const r = await api('/admin-api/maintenance', {
-    method: 'POST',
-    body: JSON.stringify({ enable: false })
-  })
-  $('maintOffBtn').disabled = false
-  if (r.ok) {
-    renderMaintenance(null)
-    flash(panelMsg, '维护模式已关闭', 'ok')
-  } else {
-    flash(panelMsg, r.data.message || '关闭失败', 'err')
-  }
-})
 
 // ---------- 退出 ----------
 $('logoutBtn').addEventListener('click', async () => {

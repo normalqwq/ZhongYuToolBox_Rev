@@ -3,7 +3,7 @@
     <!-- 背景封面氛围 -->
     <div class="bg-cover" :style="{ backgroundImage: `url(${bgUrl})` }"></div>
 
-    <!-- 移动端顶栏（置顶，二级页面隐藏） -->
+    <!-- ===== 移动端顶栏（置顶，二级页面隐藏） ===== -->
     <header v-if="isMobile && !hideHeader" class="mobile-topbar">
       <el-button text :icon="Menu" class="menu-btn" @click="drawer = true" />
       <span class="mb-title">{{ currentTitle }}</span>
