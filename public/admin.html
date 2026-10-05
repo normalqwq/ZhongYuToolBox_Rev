@@ -234,6 +234,7 @@
         <button class="tab-btn active" id="tabList">名单管理</button>
         <button class="tab-btn" id="tabMaint">维护模式</button>
         <button class="tab-btn" id="tabLog">操作日志</button>
+        <button class="tab-btn" id="tabLoginLog">登录日志</button>
       </div>
 
       <div id="listView">
@@ -276,6 +277,17 @@
         <div id="logBox"></div>
       </div>
 
+<<<<<<< Updated upstream
+=======
+      <div id="loginLogView" class="hidden">
+        <div class="log-header">
+          <span class="count" id="loginLogCountLine"></span>
+          <button class="btn-ghost" id="refreshLoginLogBtn">刷新</button>
+        </div>
+        <div id="loginLogBox"></div>
+      </div>
+
+>>>>>>> Stashed changes
       <div id="maintView" class="hidden">
         <div class="maint-card">
           <div class="maint-status off" id="maintStatus">
@@ -628,6 +640,7 @@ function switchTab(tab) {
   const listActive = tab === 'list'
   const logActive = tab === 'log'
   const maintActive = tab === 'maint'
+<<<<<<< Updated upstream
   $('tabList').classList.toggle('active', listActive)
   $('tabMaint').classList.toggle('active', maintActive)
   $('tabLog').classList.toggle('active', logActive)
@@ -636,10 +649,25 @@ function switchTab(tab) {
   $('logView').classList.toggle('hidden', !logActive)
   if (logActive) loadAuditLog()
   if (maintActive) loadMaintenance()
+=======
+  const loginActive = tab === 'login'
+  $('tabList').classList.toggle('active', listActive)
+  $('tabMaint').classList.toggle('active', maintActive)
+  $('tabLog').classList.toggle('active', logActive)
+  $('tabLoginLog').classList.toggle('active', loginActive)
+  $('listView').classList.toggle('hidden', !listActive)
+  $('maintView').classList.toggle('hidden', !maintActive)
+  $('logView').classList.toggle('hidden', !logActive)
+  $('loginLogView').classList.toggle('hidden', !loginActive)
+  if (logActive) loadAuditLog()
+  if (maintActive) loadMaintenance()
+  if (loginActive) loadLoginLog()
+>>>>>>> Stashed changes
 }
 $('tabList').addEventListener('click', () => switchTab('list'))
 $('tabMaint').addEventListener('click', () => switchTab('maint'))
 $('tabLog').addEventListener('click', () => switchTab('log'))
+$('tabLoginLog').addEventListener('click', () => switchTab('login'))
 
 // ---------- 批量导入 ----------
 const importModal = $('importModal')
@@ -749,6 +777,54 @@ async function loadAuditLog() {
 }
 $('refreshLogBtn').addEventListener('click', loadAuditLog)
 
+<<<<<<< Updated upstream
+=======
+// ---------- 登录日志 ----------
+async function loadLoginLog() {
+  const box = $('loginLogBox')
+  box.innerHTML = '<div class="empty">加载中…</div>'
+  const r = await api('/admin-api/login-log')
+  if (!r.ok) {
+    box.innerHTML = '<div class="empty">加载登录日志失败</div>'
+    return
+  }
+  const logs = r.data.logs || []
+  $('loginLogCountLine').textContent = '共 ' + logs.length + ' 条登录记录（最多保留 500 条）'
+  if (!logs.length) {
+    box.innerHTML = '<div class="empty">暂无登录记录</div>'
+    return
+  }
+  const ul = document.createElement('ul')
+  ul.className = 'log-list'
+  logs.forEach((entry) => {
+    const li = document.createElement('li')
+    const time = document.createElement('span')
+    time.className = 'log-time'
+    time.textContent = formatTime(entry.t)
+    const user = document.createElement('span')
+    user.className = 'log-action'
+    user.style.color = '#4f46e5'
+    user.textContent = '登录'
+    const name = document.createElement('span')
+    name.className = 'log-names'
+    name.textContent = entry.u || '(未知用户)'
+    li.appendChild(time)
+    li.appendChild(user)
+    li.appendChild(name)
+    if (entry.ip) {
+      const ip = document.createElement('span')
+      ip.className = 'log-meta'
+      ip.textContent = ' · IP: ' + entry.ip
+      li.appendChild(ip)
+    }
+    ul.appendChild(li)
+  })
+  box.innerHTML = ''
+  box.appendChild(ul)
+}
+$('refreshLoginLogBtn').addEventListener('click', loadLoginLog)
+
+>>>>>>> Stashed changes
 // ---------- 维护模式 ----------
 let maintTimer = null
 async function loadMaintenance() {

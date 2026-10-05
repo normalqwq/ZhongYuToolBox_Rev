@@ -24,6 +24,7 @@ import {
 
 const AUDIT_LOG_KEY = 'whitelist_audit_log'
 const AUDIT_LOG_MAX = 200
+const LOGIN_LOG_KEY = 'user_login_log'
 const LOGIN_FAIL_KEY_PREFIX = 'admin_fail:'
 const MAX_FAIL_ATTEMPTS = 5
 const LOCK_DURATION_MS = 15 * 60 * 1000 // 15 分钟
@@ -287,6 +288,20 @@ export async function onRequest(context) {
     }
   }
 
+<<<<<<< Updated upstream
+=======
+  // ---------- 登录日志 ----------
+  if (path === '/login-log' && request.method === 'GET') {
+    try {
+      const raw = await env.AUTH_KV.get(LOGIN_LOG_KEY)
+      const list = raw ? JSON.parse(raw) : []
+      return json({ ok: true, logs: Array.isArray(list) ? list : [] })
+    } catch {
+      return json({ ok: true, logs: [] })
+    }
+  }
+
+>>>>>>> Stashed changes
   // ---------- 维护模式：读取状态 ----------
   if (path === '/maintenance' && request.method === 'GET') {
     try {
