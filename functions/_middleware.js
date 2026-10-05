@@ -29,7 +29,7 @@ function unauthorized() {
   )
 }
 
-/** 返回维护页面（HTML） */
+/** 返回维护页面（HTML）——用于浏览器导航请求 */
 function maintenancePage(message) {
   const safe = String(message || '网站正在维护中，请稍后再来～')
     .replace(/&/g, '&amp;')
@@ -95,6 +95,35 @@ function maintenancePage(message) {
   })
 }
 
+/** 返回维护模式响应：API（JSON）或页面（HTML），按 Accept / 路径自动选择 */
+function maintenanceResponse(request, pathname, message) {
+  const isApi =
+    pathname.startsWith('/api/') ||
+    pathname === '/imgproxy' ||
+    (request.headers.get('accept') || '').includes('application/json') ||
+    (request.headers.get('x-requested-with') || '').toLowerCase() === 'xmlhttprequest'
+
+  if (isApi) {
+    // 前端 fetch 调用：返回 JSON 错误体，前端可正常 JSON.parse 并提示
+    return new Response(
+      JSON.stringify({
+        result: null,
+        success: false,
+        unAuthorizedRequest: false,
+        error: { code: 503, message: String(message || '网站正在维护中，请稍后再来～'), details: null }
+      }),
+      {
+        status: 503,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store, no-cache, must-revalidate'
+        }
+      }
+    )
+  }
+  return maintenancePage(message)
+}
+
 /** 读取维护配置（含自动过期） */
 async function getMaintenance(env) {
   if (!env || !env.AUTH_KV) return null
@@ -130,7 +159,7 @@ export async function onRequest(context) {
     // 已登录的管理员直接放行，便于在维护期间检查前台表现
     const adminToken = getCookie(request, ADMIN_COOKIE)
     const adminOk = env.AUTH_SECRET && await verifyToken(adminToken, env.AUTH_SECRET)
-    if (!adminOk) return maintenancePage(cfg.message)
+    if (!adminOk) return maintenanceResponse(request, pathname, cfg.message)
   }
 
   // 登录接口放行（functions/api/[[path]].js 内部会校验白名单并下发凭证）
