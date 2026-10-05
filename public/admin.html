@@ -277,8 +277,6 @@
         <div id="logBox"></div>
       </div>
 
-<<<<<<< Updated upstream
-=======
       <div id="loginLogView" class="hidden">
         <div class="log-header">
           <span class="count" id="loginLogCountLine"></span>
@@ -287,7 +285,6 @@
         <div id="loginLogBox"></div>
       </div>
 
->>>>>>> Stashed changes
       <div id="maintView" class="hidden">
         <div class="maint-card">
           <div class="maint-status off" id="maintStatus">
@@ -640,16 +637,6 @@ function switchTab(tab) {
   const listActive = tab === 'list'
   const logActive = tab === 'log'
   const maintActive = tab === 'maint'
-<<<<<<< Updated upstream
-  $('tabList').classList.toggle('active', listActive)
-  $('tabMaint').classList.toggle('active', maintActive)
-  $('tabLog').classList.toggle('active', logActive)
-  $('listView').classList.toggle('hidden', !listActive)
-  $('maintView').classList.toggle('hidden', !maintActive)
-  $('logView').classList.toggle('hidden', !logActive)
-  if (logActive) loadAuditLog()
-  if (maintActive) loadMaintenance()
-=======
   const loginActive = tab === 'login'
   $('tabList').classList.toggle('active', listActive)
   $('tabMaint').classList.toggle('active', maintActive)
@@ -662,7 +649,6 @@ function switchTab(tab) {
   if (logActive) loadAuditLog()
   if (maintActive) loadMaintenance()
   if (loginActive) loadLoginLog()
->>>>>>> Stashed changes
 }
 $('tabList').addEventListener('click', () => switchTab('list'))
 $('tabMaint').addEventListener('click', () => switchTab('maint'))
@@ -777,8 +763,6 @@ async function loadAuditLog() {
 }
 $('refreshLogBtn').addEventListener('click', loadAuditLog)
 
-<<<<<<< Updated upstream
-=======
 // ---------- 登录日志 ----------
 async function loadLoginLog() {
   const box = $('loginLogBox')
@@ -824,7 +808,6 @@ async function loadLoginLog() {
 }
 $('refreshLoginLogBtn').addEventListener('click', loadLoginLog)
 
->>>>>>> Stashed changes
 // ---------- 维护模式 ----------
 let maintTimer = null
 async function loadMaintenance() {

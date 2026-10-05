@@ -288,8 +288,6 @@ export async function onRequest(context) {
     }
   }
 
-<<<<<<< Updated upstream
-=======
   // ---------- 登录日志 ----------
   if (path === '/login-log' && request.method === 'GET') {
     try {
@@ -301,7 +299,6 @@ export async function onRequest(context) {
     }
   }
 
->>>>>>> Stashed changes
   // ---------- 维护模式：读取状态 ----------
   if (path === '/maintenance' && request.method === 'GET') {
     try {
