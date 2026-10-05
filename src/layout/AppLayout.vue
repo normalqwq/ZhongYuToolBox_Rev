@@ -3,11 +3,12 @@
     <!-- 背景封面氛围 -->
     <div class="bg-cover" :style="{ backgroundImage: `url(${bgUrl})` }"></div>
 
-    <!-- ===== 移动端顶栏（置顶，二级页面隐藏） ===== -->
+    <!-- 移动端顶栏（置顶，二级页面隐藏） -->
     <header v-if="isMobile && !hideHeader" class="mobile-topbar">
       <el-button text :icon="Menu" class="menu-btn" @click="drawer = true" />
       <span class="mb-title">{{ currentTitle }}</span>
       <div class="mb-right">
+        <el-button text :icon="Search" @click="openMobileSearch" />
         <el-tag v-if="proxyLocal" type="success" size="small" effect="dark">加速</el-tag>
         <el-button text :icon="User" @click="goLogin" />
         <el-dropdown trigger="click" @command="onMobileCommand">
@@ -21,6 +22,42 @@
         </el-dropdown>
       </div>
     </header>
+
+    <!-- 移动端全屏搜索遮罩 -->
+    <transition name="fade">
+      <div v-if="mobileSearchOpen" class="mobile-search-overlay" @click.self="closeMobileSearch">
+        <div class="mobile-search-bar">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="搜索笔记 / 随身答 / 错题…"
+            clearable
+            :prefix-icon="Search"
+            size="large"
+            @input="onSearchInput"
+            @clear="searchResults = []"
+          />
+          <el-button text @click="closeMobileSearch">取消</el-button>
+        </div>
+        <div class="search-results mobile">
+          <div v-if="searching" class="search-empty">搜索中…</div>
+          <template v-else-if="searchResults.length">
+            <div v-for="(group, gk) in groupedResults" :key="gk" class="search-group">
+              <div class="search-group-title">{{ gk }}</div>
+              <div
+                v-for="(r, i) in group"
+                :key="i"
+                class="search-item"
+                @click="goResult(r)"
+              >
+                <div class="search-item-title">{{ r.title }}</div>
+                <div v-if="r.subtitle" class="search-item-sub">{{ r.subtitle }}</div>
+              </div>
+            </div>
+          </template>
+          <div v-else-if="searchKeyword.trim()" class="search-empty">没有找到相关内容</div>
+        </div>
+      </div>
+    </transition>
 
     <el-container class="main-container" :class="{ 'is-mobile': isMobile }">
       <!-- 侧边栏（桌面端常驻） -->
@@ -40,6 +77,36 @@
             <Fold v-else />
           </el-icon>
           <span class="header-title">{{ currentTitle }}</span>
+          <div class="header-search" @click.stop>
+            <el-input
+              v-model="searchKeyword"
+              placeholder="搜索笔记 / 随身答 / 错题…"
+              clearable
+              :prefix-icon="Search"
+              @input="onSearchInput"
+              @clear="searchResults = []"
+            />
+            <transition name="fade">
+              <div v-if="searchPanelOpen" class="search-dropdown">
+                <div v-if="searching" class="search-empty">搜索中…</div>
+                <template v-else-if="searchResults.length">
+                  <div v-for="(group, gk) in groupedResults" :key="gk" class="search-group">
+                    <div class="search-group-title">{{ gk }}</div>
+                    <div
+                      v-for="(r, i) in group"
+                      :key="i"
+                      class="search-item"
+                      @click="goResult(r)"
+                    >
+                      <div class="search-item-title">{{ r.title }}</div>
+                      <div v-if="r.subtitle" class="search-item-sub">{{ r.subtitle }}</div>
+                    </div>
+                  </div>
+                </template>
+                <div v-else-if="searchKeyword.trim()" class="search-empty">没有找到相关内容</div>
+              </div>
+            </transition>
+          </div>
           <div class="header-right">
             <el-tag v-if="proxyLocal" type="success" size="small" effect="dark">本地加速已启用</el-tag>
             <el-button text :icon="User" @click="goLogin">
@@ -103,13 +170,15 @@ import {
   CaretTop,
   User,
   More,
-  SwitchButton
+  SwitchButton,
+  Search
 } from '@element-plus/icons-vue'
 import SideMenu from './SideMenu.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useProxyStore } from '@/stores/proxy'
 import { startProxyPolling, stopProxyPolling, getProxyBaseUrl } from '@/utils/proxy'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { globalSearch, type GlobalSearchResult } from '@/composables/useGlobalSearch'
 
 const route = useRoute()
 const router = useRouter()
@@ -128,6 +197,71 @@ const proxyLocal = computed(() => proxy.localEnabled)
 
 const mainRef = ref()
 const showBackTop = ref(false)
+
+/* -------------------- 全局搜索 -------------------- */
+const searchKeyword = ref('')
+const searchResults = ref<GlobalSearchResult[]>([])
+const searching = ref(false)
+const searchPanelOpen = ref(false)
+const mobileSearchOpen = ref(false)
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 按模块分组展示 */
+const groupedResults = computed(() => {
+  const map: Record<string, GlobalSearchResult[]> = {}
+  for (const r of searchResults.value) {
+    if (!map[r.typeLabel]) map[r.typeLabel] = []
+    map[r.typeLabel].push(r)
+  }
+  return map
+})
+
+async function runSearch() {
+  const kw = searchKeyword.value.trim()
+  if (!kw) {
+    searchResults.value = []
+    return
+  }
+  searching.value = true
+  try {
+    searchResults.value = await globalSearch(kw)
+  } finally {
+    searching.value = false
+  }
+}
+
+function onSearchInput() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchPanelOpen.value = true
+  searchTimer = setTimeout(() => {
+    runSearch()
+  }, 350)
+}
+
+function goResult(r: GlobalSearchResult) {
+  router.push({ name: r.route.name, params: r.route.params })
+  searchPanelOpen.value = false
+  mobileSearchOpen.value = false
+}
+
+function openMobileSearch() {
+  mobileSearchOpen.value = true
+  setTimeout(() => {
+    const input = document.querySelector('.mobile-search-bar input') as HTMLInputElement | null
+    input?.focus()
+  }, 100)
+}
+function closeMobileSearch() {
+  mobileSearchOpen.value = false
+}
+
+/** 点击搜索框外部关闭桌面端下拉 */
+function onDocClick(e: MouseEvent) {
+  const box = document.querySelector('.header-search')
+  if (box && !box.contains(e.target as Node)) {
+    searchPanelOpen.value = false
+  }
+}
 
 function onScroll() {
   const el = document.querySelector('.content')
@@ -166,12 +300,15 @@ onMounted(() => {
   content?.addEventListener('scroll', onScroll)
   // 让接管顶栏的二级页面（如在线专栏）也能唤起移动端侧栏抽屉
   window.addEventListener('app:open-drawer', onOpenDrawer)
+  document.addEventListener('click', onDocClick)
 })
 onUnmounted(() => {
   stopProxyPolling()
   const content = document.querySelector('.content')
   content?.removeEventListener('scroll', onScroll)
   window.removeEventListener('app:open-drawer', onOpenDrawer)
+  document.removeEventListener('click', onDocClick)
+  if (searchTimer) clearTimeout(searchTimer)
 })
 
 function onOpenDrawer() {
@@ -353,5 +490,88 @@ function onOpenDrawer() {
 /* 移动端抽屉宽度：按比例并限制最大宽度，避免在大屏手机上过宽 */
 .mobile-drawer.el-drawer {
   max-width: 320px;
+}
+
+/* ===== 全局搜索 ===== */
+.header-search {
+  position: relative;
+  margin-left: 20px;
+  flex: 1;
+  max-width: 420px;
+}
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  max-height: 60vh;
+  overflow-y: auto;
+  z-index: 3000;
+  padding: 8px 0;
+}
+.mobile-search-overlay {
+  position: fixed;
+  inset: 0;
+  background: #f5f7fa;
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+}
+.mobile-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  border-bottom: 1px solid #ebeef5;
+}
+.search-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+.search-results.mobile {
+  padding: 12px;
+}
+.search-group {
+  margin-bottom: 8px;
+}
+.search-group-title {
+  font-size: 12px;
+  color: #909399;
+  padding: 6px 12px 4px;
+  font-weight: 600;
+}
+.search-item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.search-item:hover {
+  background: #f0f4ff;
+}
+.search-item-title {
+  font-size: 14px;
+  color: #303133;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.search-item-sub {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.search-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: #c0c4cc;
+  font-size: 13px;
 }
 </style>
