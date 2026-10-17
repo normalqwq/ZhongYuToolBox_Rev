@@ -12,9 +12,6 @@ node_modules/
 dist/
 dist-ssr/
 
-# 每日早报脚本产物（调试用，不进仓库）
-tmp/
-
 # TypeScript build info
 *.tsbuildinfo
 
