@@ -29,3 +29,6 @@ dist-ssr/
 
 # CodeBuddy
 .codebuddy/
+
+# 独立子仓库（每日早报机器人），不纳入主仓库版本管理
+daily-report-bot/
