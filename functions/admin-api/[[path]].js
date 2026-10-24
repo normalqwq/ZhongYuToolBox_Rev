@@ -10,10 +10,15 @@
 //   GET    /admin-api/users/export                     导出白名单（JSON）
 //   GET    /admin-api/audit-log                        查看操作审计日志
 //   GET    /admin-api/login-log                        查看用户登录日志
+//   GET    /admin-api/overview-users                   获取「考试概览」二级白名单
+//   POST   /admin-api/overview-users   { name }        添加
+//   DELETE /admin-api/overview-users   { name }        删除
 // ============================================================
 import {
   getWhitelist,
   setWhitelist,
+  getOverviewWhitelist,
+  setOverviewWhitelist,
   signToken,
   verifyToken,
   getCookie,
@@ -274,6 +279,40 @@ export async function onRequest(context) {
       action: toRemove.length > 1 ? 'batch_remove' : 'remove',
       names: exists
     })
+    return json({ ok: true, users: next })
+  }
+
+  // ---------- 概览白名单：查询 ----------
+  if (path === '/overview-users' && request.method === 'GET') {
+    return json({ ok: true, users: await getOverviewWhitelist(env) })
+  }
+
+  // ---------- 概览白名单：添加 ----------
+  if (path === '/overview-users' && request.method === 'POST') {
+    const { name } = await readJsonBody(request)
+    const userName = String(name || '').trim()
+    if (!userName) return json({ ok: false, message: '用户名不能为空' }, 400)
+    if (userName.length > 64) return json({ ok: false, message: '用户名太长了' }, 400)
+    const list = await getOverviewWhitelist(env)
+    if (list.includes(userName)) {
+      return json({ ok: false, message: '这个用户名已经在概览名单里了' }, 409)
+    }
+    const next = await setOverviewWhitelist(env, [...list, userName])
+    await pushAuditLog(env, { action: 'overview_add', names: [userName] })
+    return json({ ok: true, users: next })
+  }
+
+  // ---------- 概览白名单：删除 ----------
+  if (path === '/overview-users' && request.method === 'DELETE') {
+    const { name } = await readJsonBody(request)
+    const userName = String(name || '').trim()
+    if (!userName) return json({ ok: false, message: '请指定要删除的用户名' }, 400)
+    const list = await getOverviewWhitelist(env)
+    if (!list.includes(userName)) {
+      return json({ ok: false, message: '概览名单里没有这个用户名' }, 404)
+    }
+    const next = await setOverviewWhitelist(env, list.filter((u) => u !== userName))
+    await pushAuditLog(env, { action: 'overview_remove', names: [userName] })
     return json({ ok: true, users: next })
   }
 

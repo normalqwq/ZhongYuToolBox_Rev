@@ -2,13 +2,18 @@
 // 全站中间件：给 /api 接口和 /imgproxy 图片代理加一道登录门
 // 浏览器里改本地缓存、直接调接口等绕前端的做法都会被这里拦住。
 // ============================================================
-import { getCookie, verifyToken, USER_COOKIE } from './_auth.js'
+import { getCookie, verifyToken, getOverviewWhitelist, USER_COOKIE } from './_auth.js'
 
 /** 需要登录态才能访问的路径前缀/精确路径 */
 function isProtected(pathname) {
   if (pathname.startsWith('/api/')) return true
   if (pathname === '/imgproxy') return true
   return false
+}
+
+/** 「考试概览」接口：在已登录基础上再做二级白名单校验 */
+function isOverviewApi(pathname) {
+  return pathname.startsWith('/api/services/app/LearningSituations/GetExamOverviewAsync')
 }
 
 function unauthorized() {
@@ -21,6 +26,21 @@ function unauthorized() {
     }),
     {
       status: 401,
+      headers: { 'content-type': 'application/json; charset=utf-8' }
+    }
+  )
+}
+
+function forbidden() {
+  return new Response(
+    JSON.stringify({
+      result: null,
+      success: false,
+      unAuthorizedRequest: false,
+      error: { code: 403, message: '您没有查看考试概览的权限，请联系管理员开通', details: null }
+    }),
+    {
+      status: 403,
       headers: { 'content-type': 'application/json; charset=utf-8' }
     }
   )
@@ -48,6 +68,14 @@ export async function onRequest(context) {
     const token = getCookie(request, USER_COOKIE)
     const payload = await verifyToken(token, env.AUTH_SECRET)
     if (!payload) return unauthorized()
+
+    // 「考试概览」二级白名单校验：名单为空 = 不启用限制；非空则只有名单内用户可访问
+    if (isOverviewApi(pathname)) {
+      const overviewList = await getOverviewWhitelist(env)
+      if (overviewList.length > 0 && !overviewList.includes(payload.u || '')) {
+        return forbidden()
+      }
+    }
   }
 
   return next()

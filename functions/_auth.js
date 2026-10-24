@@ -4,6 +4,8 @@
 
 /** KV 中存储白名单的键名 */
 export const WHITELIST_KEY = 'whitelist'
+/** KV 中存储「考试概览」二级白名单的键名 */
+export const OVERVIEW_WHITELIST_KEY = 'overview_whitelist'
 /** 普通用户会话 Cookie 名 */
 export const USER_COOKIE = 'zy_auth'
 /** 管理员会话 Cookie 名 */
@@ -133,5 +135,25 @@ export async function getWhitelist(env) {
 export async function setWhitelist(env, list) {
   const clean = [...new Set(list.map((s) => String(s).trim()).filter(Boolean))]
   await env.AUTH_KV.put(WHITELIST_KEY, JSON.stringify(clean))
+  return clean
+}
+
+/** 读取「考试概览」二级白名单（用户名字段与主白名单一致） */
+export async function getOverviewWhitelist(env) {
+  try {
+    const raw = await env.AUTH_KV.get(OVERVIEW_WHITELIST_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return arr.map((s) => String(s).trim()).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/** 写入「考试概览」二级白名单 */
+export async function setOverviewWhitelist(env, list) {
+  const clean = [...new Set(list.map((s) => String(s).trim()).filter(Boolean))]
+  await env.AUTH_KV.put(OVERVIEW_WHITELIST_KEY, JSON.stringify(clean))
   return clean
 }

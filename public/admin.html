@@ -209,6 +209,7 @@
 
       <div class="tab-bar">
         <button class="tab-btn active" id="tabList">名单管理</button>
+        <button class="tab-btn" id="tabOverview">概览权限</button>
         <button class="tab-btn" id="tabLog">操作日志</button>
         <button class="tab-btn" id="tabLoginLog">登录日志</button>
       </div>
@@ -259,6 +260,20 @@
           <button class="btn-ghost" id="refreshLoginLogBtn">刷新</button>
         </div>
         <div id="loginLogBox"></div>
+      </div>
+
+      <div id="overviewView" class="hidden">
+        <div class="sub" style="margin: 14px 0 10px;">
+          「新测评 → 考试概览」（含成绩排名）只对这里的用户名开放。<br />
+          <b>名单为空 = 不启用限制，所有人都能看；加了人之后 = 只有这些人能看。</b>
+        </div>
+        <label for="newOverviewName">添加用户名</label>
+        <div class="add-row">
+          <input id="newOverviewName" type="text" placeholder="输入学校平台用户名（学号）" maxlength="64" />
+          <button class="btn-add" id="addOverviewBtn">添加</button>
+        </div>
+        <div class="count" id="overviewCountLine"></div>
+        <div id="overviewBox"></div>
       </div>
 
       <div class="msg" id="panelMsg"></div>
@@ -577,18 +592,97 @@ function switchTab(tab) {
   const listActive = tab === 'list'
   const logActive = tab === 'log'
   const loginActive = tab === 'login'
+  const overviewActive = tab === 'overview'
   $('tabList').classList.toggle('active', listActive)
   $('tabLog').classList.toggle('active', logActive)
   $('tabLoginLog').classList.toggle('active', loginActive)
+  $('tabOverview').classList.toggle('active', overviewActive)
   $('listView').classList.toggle('hidden', !listActive)
   $('logView').classList.toggle('hidden', !logActive)
   $('loginLogView').classList.toggle('hidden', !loginActive)
+  $('overviewView').classList.toggle('hidden', !overviewActive)
   if (logActive) loadAuditLog()
   if (loginActive) loadLoginLog()
+  if (overviewActive) loadOverviewUsers()
 }
 $('tabList').addEventListener('click', () => switchTab('list'))
 $('tabLog').addEventListener('click', () => switchTab('log'))
 $('tabLoginLog').addEventListener('click', () => switchTab('login'))
+$('tabOverview').addEventListener('click', () => switchTab('overview'))
+
+// ---------- 概览权限名单 ----------
+const overviewState = { users: [] }
+
+function renderOverviewUsers() {
+  const box = $('overviewBox')
+  box.innerHTML = ''
+  const total = overviewState.users.length
+  $('overviewCountLine').textContent = total
+    ? `当前共 ${total} 个可看概览的用户名`
+    : ''
+  if (!total) {
+    box.innerHTML = '<div class="empty">名单为空，目前<b>所有人都能看概览</b>。<br/>添加用户名后才会启用限制。</div>'
+    return
+  }
+  const ul = document.createElement('ul')
+  ul.className = 'list'
+  overviewState.users.forEach((name) => {
+    const li = document.createElement('li')
+    const span = document.createElement('span')
+    span.className = 'uname'
+    span.textContent = name
+    const btn = document.createElement('button')
+    btn.className = 'btn-del'
+    btn.textContent = '删除'
+    btn.addEventListener('click', () => removeOverviewUser(name))
+    li.appendChild(span)
+    li.appendChild(btn)
+    ul.appendChild(li)
+  })
+  box.appendChild(ul)
+}
+
+async function loadOverviewUsers() {
+  const r = await api('/admin-api/overview-users')
+  if (!r.ok) {
+    flash(panelMsg, r.data.message || '加载概览名单失败', 'err')
+    return
+  }
+  overviewState.users = r.data.users || []
+  renderOverviewUsers()
+}
+
+async function addOverviewUser() {
+  const input = $('newOverviewName')
+  const name = input.value.trim()
+  if (!name) return flash(panelMsg, '请输入用户名', 'err')
+  $('addOverviewBtn').disabled = true
+  const r = await api('/admin-api/overview-users', { method: 'POST', body: JSON.stringify({ name }) })
+  $('addOverviewBtn').disabled = false
+  if (r.ok) {
+    input.value = ''
+    overviewState.users = r.data.users || []
+    renderOverviewUsers()
+    flash(panelMsg, '已添加到概览名单：' + name, 'ok')
+  } else {
+    flash(panelMsg, r.data.message || '添加失败', 'err')
+  }
+}
+
+async function removeOverviewUser(name) {
+  if (!confirm('确定把「' + name + '」从概览名单中删除吗？')) return
+  const r = await api('/admin-api/overview-users', { method: 'DELETE', body: JSON.stringify({ name }) })
+  if (r.ok) {
+    overviewState.users = r.data.users || []
+    renderOverviewUsers()
+    flash(panelMsg, '已删除：' + name, 'ok')
+  } else {
+    flash(panelMsg, r.data.message || '删除失败', 'err')
+  }
+}
+
+$('addOverviewBtn').addEventListener('click', addOverviewUser)
+$('newOverviewName').addEventListener('keydown', (e) => { if (e.key === 'Enter') addOverviewUser() })
 
 // ---------- 批量导入 ----------
 const importModal = $('importModal')
