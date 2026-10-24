@@ -11,9 +11,12 @@ function isProtected(pathname) {
   return false
 }
 
-/** 「考试概览」接口：在已登录基础上再做二级白名单校验 */
+/** 「考试概览 / 导出班级作答」接口：在已登录基础上再做二级白名单校验 */
 function isOverviewApi(pathname) {
-  return pathname.startsWith('/api/services/app/LearningSituations/GetExamOverviewAsync')
+  return (
+    pathname.startsWith('/api/services/app/LearningSituations/GetExamOverviewAsync') ||
+    pathname.startsWith('/api/services/app/Exam/ExportObjectiveAnswersAsync')
+  )
 }
 
 function unauthorized() {
@@ -37,7 +40,7 @@ function forbidden() {
       result: null,
       success: false,
       unAuthorizedRequest: false,
-      error: { code: 403, message: '您没有查看考试概览的权限，请联系管理员开通', details: null }
+      error: { code: 403, message: '您没有查看考试概览/导出班级作答的权限，请联系管理员开通', details: null }
     }),
     {
       status: 403,
